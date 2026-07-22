@@ -1,8 +1,8 @@
-; media-to-doc NSIS installer (W14-C B)
+; media-to-doc NSIS installer (W14-C B + v1.4.0 bump)
 ; Uses system NSIS 3.12, bypasses Tauri bundler GitHub TLS issue
 
 !define PRODUCT_NAME "media-to-doc"
-!define PRODUCT_VERSION "1.3.0"
+!define PRODUCT_VERSION "1.4.0"
 !define PRODUCT_PUBLISHER "Duanyi"
 !define PRODUCT_DIR_REGKEY "Software\Microsoft\Windows\CurrentVersion\App Paths\media-to-doc-ui.exe"
 !define PRODUCT_UNINST_KEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PRODUCT_NAME}"
@@ -13,7 +13,7 @@ SetCompressor lzma
 !include "MUI2.nsh"
 
 Name "${PRODUCT_NAME} ${PRODUCT_VERSION}"
-OutFile "..\target\release\bundle\nsis\media-to-doc-1.3.0-setup.exe"
+OutFile "..\target\release\bundle\nsis\media-to-doc-1.4.0-setup.exe"
 InstallDir "$PROGRAMFILES\MediaToDoc"
 InstallDirRegKey HKLM "${PRODUCT_DIR_REGKEY}" ""
 RequestExecutionLevel admin
