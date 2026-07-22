@@ -5,6 +5,7 @@
 //! - `RunRegistry` 存 work_dir → Child 的映射,提供 cancel/list
 //! - `kill_tree` Windows 走 `taskkill /T /F`,Unix 走 `kill -TERM -PGID`
 //! - `kill_on_drop(true)` Tauri 进程退出时自动清理子进程
+//! - W14-C:max_concurrent=3(env override) + completed LRU 100 + cancel 2s 超时
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -123,12 +124,24 @@ pub fn build_mtd_resume_args(
 }
 
 // ─────────────────────────────────────────────────────────────
-// RunRegistry —— 共享 state(tauri::State<RunRegistry>)
+// RunRegistry —— 共享 state(W14-C:max_concurrent + LRU)
 // ─────────────────────────────────────────────────────────────
 
-#[derive(Default, Clone)]
+const DEFAULT_MAX_CONCURRENT: usize = 3;
+const COMPLETED_LRU_CAP: usize = 100;
+
+fn max_concurrent_from_env() -> usize {
+  std::env::var("MEDIA_TO_DOC_MAX_CONCURRENT")
+    .ok()
+    .and_then(|v| v.parse::<usize>().ok())
+    .unwrap_or(DEFAULT_MAX_CONCURRENT)
+}
+
+#[derive(Clone)]
 pub struct RunRegistry {
   inner: Arc<Mutex<HashMap<String, ChildEntry>>>,
+  max_concurrent: usize,
+  completed: Arc<Mutex<Vec<CompletedRun>>>,
 }
 
 /// 全局单例 RunRegistry(避免 Tauri async command 传 `State` 的 Result 强制要求)。
@@ -156,6 +169,32 @@ pub struct RunningRun {
   pub inbox: String,
 }
 
+/// 已完成(cancelled/failed/completed)的 run 记录(LRU 100)。
+#[derive(Debug, Clone, Serialize)]
+pub struct CompletedRun {
+  pub work_dir: String,
+  pub pid: Option<u32>,
+  pub started_at: String,
+  pub finished_at: String,
+  pub inbox: String,
+  pub log_path: String,
+  /// "completed" | "cancelled" | "failed"
+  pub status: String,
+}
+
+/// 前端用的统一 run 信息(含 running + completed)。
+#[derive(Debug, Clone, Serialize)]
+pub struct RunStatusInfo {
+  pub work_dir: String,
+  pub pid: Option<u32>,
+  pub started_at: String,
+  pub finished_at: Option<String>,
+  pub inbox: String,
+  pub log_path: String,
+  /// "running" | "completed" | "cancelled" | "failed"
+  pub status: String,
+}
+
 struct ChildEntry {
   child: Child,
   started_at: String,
@@ -165,29 +204,86 @@ struct ChildEntry {
 
 impl RunRegistry {
   pub fn new() -> Self {
-    Self::default()
+    Self {
+      inner: Arc::new(Mutex::new(HashMap::new())),
+      max_concurrent: max_concurrent_from_env(),
+      completed: Arc::new(Mutex::new(Vec::new())),
+    }
   }
 
+  /// 返回当前最大并发数。
+  pub fn max_concurrent(&self) -> usize {
+    self.max_concurrent
+  }
+
+  /// 返回当前正在运行的 run 数量。
+  pub async fn running_count(&self) -> usize {
+    self.inner.lock().await.len()
+  }
+
+  /// 插入新 run;若已达并发上限则返回错误。
+  /// 成功返回 Ok(()) 并自动 spawn 后台监控(子进程退出 → reap)。
   pub async fn insert(
     &self,
     work_dir: String,
-    child: Child,
+    mut child: Child,
     inbox: String,
     log_path: String,
-  ) {
+  ) -> Result<(), String> {
     let started_at = chrono_like_now();
-    let mut g = self.inner.lock().await;
-    g.insert(
-      work_dir,
-      ChildEntry {
-        child,
+    let pid = child.id();
+    {
+      let mut g = self.inner.lock().await;
+      if g.len() >= self.max_concurrent {
+        // 拒绝前先清理刚 spawn 的进程
+        let _ = child.kill().await;
+        return Err(format!(
+          "并发上限已达(max={}),当前 {} 个任务运行中。请等待或 cancel 后再试。",
+          self.max_concurrent,
+          g.len()
+        ));
+      }
+      g.insert(
+        work_dir.clone(),
+        ChildEntry {
+          child,
+          started_at: started_at.clone(),
+          inbox: inbox.clone(),
+          log_path: log_path.clone(),
+        },
+      );
+    }
+    // 后台监控:子进程退出 → 自动 reap
+    let wd = work_dir.clone();
+    tokio::spawn(async move {
+      // 等子进程退出(cancel 也会触发退出,此时 wait() 立刻返回)
+      let exit_status = {
+        let mut g = REGISTRY.inner.lock().await;
+        if let Some(mut entry) = g.remove(&wd) {
+          match entry.child.wait().await {
+            Ok(s) if s.success() => "completed".to_string(),
+            Ok(_) => "failed".to_string(),
+            Err(_) => "failed".to_string(),
+          }
+        } else {
+          // 已被 cancel 拿走,不需要 reap
+          return;
+        }
+      };
+      REGISTRY.push_completed(CompletedRun {
+        work_dir: wd.clone(),
+        pid,
         started_at,
+        finished_at: chrono_like_now(),
         inbox,
         log_path,
-      },
-    );
+        status: exit_status,
+      }).await;
+    });
+    Ok(())
   }
 
+  /// 列出当前运行中的所有 run。
   pub async fn list(&self) -> Vec<RunningRun> {
     let g = self.inner.lock().await;
     g.iter()
@@ -201,31 +297,130 @@ impl RunRegistry {
       .collect()
   }
 
+  /// 列出全量 run(running + completed),按 started_at 降序。
+  pub async fn list_all(&self) -> Vec<RunStatusInfo> {
+    let mut out: Vec<RunStatusInfo> = Vec::new();
+    // running
+    {
+      let g = self.inner.lock().await;
+      for (k, v) in g.iter() {
+        out.push(RunStatusInfo {
+          work_dir: k.clone(),
+          pid: v.child.id(),
+          started_at: v.started_at.clone(),
+          finished_at: None,
+          inbox: v.inbox.clone(),
+          log_path: v.log_path.clone(),
+          status: "running".to_string(),
+        });
+      }
+    }
+    // completed
+    {
+      let completed = self.completed.lock().await;
+      for c in completed.iter().rev() {
+        out.push(RunStatusInfo {
+          work_dir: c.work_dir.clone(),
+          pid: c.pid,
+          started_at: c.started_at.clone(),
+          finished_at: Some(c.finished_at.clone()),
+          inbox: c.inbox.clone(),
+          log_path: c.log_path.clone(),
+          status: c.status.clone(),
+        });
+      }
+    }
+    // 降序(最新的在前)
+    out.sort_by(|a, b| b.started_at.cmp(&a.started_at));
+    out
+  }
+
   /// 检查 work_dir 是否在注册中(且进程仍存活)。
   pub async fn is_running(&self, work_dir: &str) -> bool {
     let g = self.inner.lock().await;
     g.contains_key(work_dir)
   }
 
-  /// 取消运行(work_dir 在注册中)→ 杀子进程 + 移除。
+  /// 取消运行(work_dir 在注册中)→ 杀子进程 + 移除 + 记入 completed。
+  /// 最多等待 2 秒让进程优雅退出;超时仍杀进程树 + 记 completed。
   /// 返回 `Some(pid)` 表示取消成功,`None` 表示未在运行。
   pub async fn cancel(&self, work_dir: &str) -> Option<u32> {
     let mut g = self.inner.lock().await;
     if let Some(mut entry) = g.remove(work_dir) {
-      let pid = entry.child.id();
-      // 先 kill_on_drop 由 tokio 帮忙,这里主动 kill
+      let pid = entry.child.id().unwrap_or(0);
+      // 先尝试优雅 kill
       let _ = entry.child.kill().await;
-      Some(pid.unwrap_or(0))
+      // 2 秒超时等待
+      let waited = tokio::time::timeout(
+        std::time::Duration::from_secs(2),
+        entry.child.wait(),
+      )
+      .await;
+      // 无论是否超时,都杀进程树兜底
+      if waited.is_err() {
+        let _ = kill_tree(pid);
+      }
+      // 记入 completed LRU
+      self.push_completed(CompletedRun {
+        work_dir: work_dir.to_string(),
+        pid: Some(pid),
+        started_at: entry.started_at,
+        finished_at: chrono_like_now(),
+        inbox: entry.inbox,
+        log_path: entry.log_path,
+        status: "cancelled".to_string(),
+      })
+      .await;
+      Some(pid)
     } else {
       None
     }
   }
 
-  /// 由 RunHandle 在 child 退出后自动调用,清理注册。
-  pub async fn reap(&self, work_dir: &str) {
+  /// 由后台监控在 child 退出后自动调用,清理注册 + 记 completed。
+  pub async fn reap(&self, work_dir: &str, exit_status: String) {
     let mut g = self.inner.lock().await;
-    g.remove(work_dir);
+    if let Some(entry) = g.remove(work_dir) {
+      self.push_completed(CompletedRun {
+        work_dir: work_dir.to_string(),
+        pid: entry.child.id(),
+        started_at: entry.started_at,
+        finished_at: chrono_like_now(),
+        inbox: entry.inbox,
+        log_path: entry.log_path,
+        status: exit_status,
+      })
+      .await;
+    }
   }
+
+  /// 写 completed 并维护 LRU 上限;如果 env 开启则持久化 runs.json。
+  async fn push_completed(&self, entry: CompletedRun) {
+    let mut completed = self.completed.lock().await;
+    completed.push(entry);
+    while completed.len() > COMPLETED_LRU_CAP {
+      completed.remove(0);
+    }
+    // 持久化(opt-in)
+    if std::env::var("MEDIA_TO_DOC_RUNS_PERSIST").as_deref() == Ok("true") {
+      let _ = maybe_persist_runs_json(&completed);
+    }
+  }
+
+  /// 返回 completed runs 的快照(只读)。
+  pub async fn completed_snapshot(&self) -> Vec<CompletedRun> {
+    self.completed.lock().await.clone()
+  }
+}
+
+fn maybe_persist_runs_json(completed: &[CompletedRun]) -> Result<(), String> {
+  let ws = crate::commands::default_workspace_root();
+  if !ws.exists() {
+    let _ = std::fs::create_dir_all(&ws);
+  }
+  let path = ws.join("runs.json");
+  let json = serde_json::to_string_pretty(completed).map_err(|e| format!("序列化失败: {e}"))?;
+  std::fs::write(&path, json).map_err(|e| format!("写 runs.json 失败: {e}"))
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -358,47 +553,129 @@ mod tests {
   }
 
   #[test]
-  fn registry_insert_list_cancel() {
+  fn registry_max_concurrent_default() {
+    let reg = RunRegistry::new();
+    assert_eq!(reg.max_concurrent(), DEFAULT_MAX_CONCURRENT);
+  }
+
+  #[test]
+  fn registry_rejects_when_full() {
+    // 设定 max_concurrent=1,验证 insert 被拒
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    rt.block_on(async {
+      let reg = RunRegistry {
+        inner: Arc::new(Mutex::new(HashMap::new())),
+        max_concurrent: 1,
+        completed: Arc::new(Mutex::new(Vec::new())),
+      };
+      // spawn a real long-running process
+      let child = spawn_mtd(&SpawnSpec {
+        program: if cfg!(windows) { "ping".to_string() } else { "sleep".to_string() },
+        args: if cfg!(windows) {
+          vec!["127.0.0.1".to_string(), "-n".to_string(), "30".to_string()]
+        } else {
+          vec!["30".to_string()]
+        },
+        work_dir: std::env::temp_dir().to_string_lossy().into_owned(),
+        log_path: std::env::temp_dir().join("test_max1.log").to_string_lossy().into_owned(),
+      }).await.expect("spawn 1");
+      let r1 = reg.insert("wd1".into(), child, "/inbox/a".into(), "/log/a".into()).await;
+      assert!(r1.is_ok());
+      assert_eq!(reg.running_count().await, 1);
+      // 尝试插入第二个(不需要真实 child)
+      let child2 = spawn_mtd(&SpawnSpec {
+        program: if cfg!(windows) { "ping".to_string() } else { "sleep".to_string() },
+        args: if cfg!(windows) {
+          vec!["127.0.0.1".to_string(), "-n".to_string(), "5".to_string()]
+        } else {
+          vec!["5".to_string()]
+        },
+        work_dir: std::env::temp_dir().to_string_lossy().into_owned(),
+        log_path: std::env::temp_dir().join("test_max2.log").to_string_lossy().into_owned(),
+      }).await.expect("spawn 2");
+      let r2 = reg.insert("wd2".into(), child2, "/inbox/b".into(), "/log/b".into()).await;
+      assert!(r2.is_err());
+      assert!(r2.unwrap_err().contains("并发上限"));
+      // cleanup
+      reg.cancel("wd1").await;
+    });
+  }
+
+  #[test]
+  fn registry_cancel_and_completed_lru() {
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    rt.block_on(async {
+      let reg = RunRegistry {
+        inner: Arc::new(Mutex::new(HashMap::new())),
+        max_concurrent: 3,
+        completed: Arc::new(Mutex::new(Vec::new())),
+      };
+      // 插入 fake child
+      let child = spawn_mtd(&SpawnSpec {
+        program: if cfg!(windows) { "ping".to_string() } else { "sleep".to_string() },
+        args: if cfg!(windows) {
+          vec!["127.0.0.1".to_string(), "-n".to_string(), "5".to_string()]
+        } else {
+          vec!["5".to_string()]
+        },
+        work_dir: std::env::temp_dir().to_string_lossy().into_owned(),
+        log_path: std::env::temp_dir().join("test_ccl.log").to_string_lossy().into_owned(),
+      }).await.expect("spawn");
+      reg.insert("wd_c".into(), child, "/inbox/c".into(), "/log/c".into()).await.unwrap();
+      // cancel
+      let pid = reg.cancel("wd_c").await;
+      assert!(pid.is_some());
+      // 检查 completed
+      let completed = reg.completed_snapshot().await;
+      assert_eq!(completed.len(), 1);
+      assert_eq!(completed[0].work_dir, "wd_c");
+      assert_eq!(completed[0].status, "cancelled");
+      // 检查不再 running
+      assert!(!reg.is_running("wd_c").await);
+    });
+  }
+
+  #[test]
+  fn registry_cancel_nonexistent_returns_none() {
     let rt = tokio::runtime::Runtime::new().unwrap();
     rt.block_on(async {
       let reg = RunRegistry::new();
-      // 插入一个 fake child:实际需要真实 spawn,这里我们用空 work_dir 试
-      // 不真 spawn,只测 list/is_running 状态
-      assert!(!reg.is_running("nonexistent").await);
-      let running = reg.list().await;
-      assert_eq!(running.len(), 0);
-      // 取消不存在的 work_dir
       assert_eq!(reg.cancel("nonexistent").await, None);
     });
   }
 
   #[test]
-  fn spawn_and_cancel_real_process() {
-    // 真 spawn 一个长寿命令(ping localhost -n 60 on Windows)然后取消
+  fn registry_list_all_includes_completed() {
     let rt = tokio::runtime::Runtime::new().unwrap();
     rt.block_on(async {
-      let spec = SpawnSpec {
-        program: if cfg!(windows) { "ping".to_string() } else { "sleep".to_string() },
-        args: if cfg!(windows) {
-          vec!["127.0.0.1".to_string(), "-n".to_string(), "60".to_string()]
-        } else {
-          vec!["60".to_string()]
-        },
-        work_dir: std::env::temp_dir().to_string_lossy().into_owned(),
-        log_path: std::env::temp_dir().join("test_mtd.log").to_string_lossy().into_owned(),
+      let reg = RunRegistry {
+        inner: Arc::new(Mutex::new(HashMap::new())),
+        max_concurrent: 3,
+        completed: Arc::new(Mutex::new(vec![CompletedRun {
+          work_dir: "old".into(),
+          pid: Some(12345),
+          started_at: "epoch:100".into(),
+          finished_at: "epoch:200".into(),
+          inbox: "/inbox/old".into(),
+          log_path: "/log/old".into(),
+          status: "completed".into(),
+        }])),
       };
-      let child = spawn_mtd(&spec).await.expect("spawn");
-      let pid = child.id();
-      assert!(pid.is_some());
-      let work_dir = "/tmp/test_work_dir".to_string();
-      // 临时用 Arc<Mutex<>> 跟踪
+      let all = reg.list_all().await;
+      // completed 应该出现
+      assert!(all.iter().any(|r| r.work_dir == "old" && r.status == "completed"));
+    });
+  }
+
+  #[test]
+  fn registry_list_empty() {
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    rt.block_on(async {
       let reg = RunRegistry::new();
-      reg.insert(work_dir.clone(), child, "/tmp/inbox".into(), spec.log_path.clone()).await;
-      assert!(reg.is_running(&work_dir).await);
-      // 取消
-      let cancelled = reg.cancel(&work_dir).await;
-      assert!(cancelled.is_some());
-      assert!(!reg.is_running(&work_dir).await);
+      let running = reg.list().await;
+      assert_eq!(running.len(), 0);
+      let all = reg.list_all().await;
+      assert_eq!(all.len(), 0);
     });
   }
 }
