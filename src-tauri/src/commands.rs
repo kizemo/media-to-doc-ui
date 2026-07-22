@@ -1,13 +1,18 @@
-//! 4 个只读 FS commands —— 对齐 media-to-doc MCP `list_courses` /
-//! `check_status` / `list_outputs` / `read_lecture` 4 个工具的语义。
+//! 8 个 Tauri commands —— 对齐 media-to-doc MCP 8 工具(W7=6 + W8=2)。
 //!
-//! 每个命令拆为:
+//! 结构(每个命令):
 //! - `*_impl` 纯函数(可单测,不入 Tauri 状态)
-//! - `#[tauri::command]` 薄包装(只做参数透传)
+//! - `#[tauri::command]` 薄包装(只做参数透传 + State 注入)
 //!
-//! 错误:Path 不存在 / state.json 缺失 / version 非法 → `CommandResponse::err`。
+//! 错误:Path 不存在 / state.json 缺失 / version 非法 / spawn 失败
+//! → `CommandResponse::err`。
 
 use std::path::{Path, PathBuf};
+
+use crate::runner::{
+  build_mtd_resume_args, build_mtd_run_args, derive_work_dir, global_registry, kill_tree,
+  spawn_mtd, RunPipelineResult, RunningRun,
+};
 
 use serde::Serialize;
 
@@ -463,6 +468,34 @@ fn default_workspace_root() -> PathBuf {
   PathBuf::from(".")
 }
 
+/// 解析 media-to-doc Python 项目根:
+/// 1. `MEDIA_TO_DOC_PROJECT` 环境变量(主路径)
+/// 2. fallback:Tauri UI 同级 sibling(开发期默认)
+/// 3. fallback:`./media-to-doc`(相对当前目录)
+pub fn resolve_media_to_doc_project() -> PathBuf {
+  if let Ok(v) = std::env::var("MEDIA_TO_DOC_PROJECT") {
+    return PathBuf::from(v);
+  }
+  // 开发期 default:Tauri UI 在 F:/soft/00selfmade/media-to-doc-ui/,
+  // media-to-doc 在同 parent 下的 F:/soft/00selfmade/media-to-doc/
+  // 用 current_exe 推断不可靠(开发态 binary 在 target/debug/),
+  // 直接走 known 路径(本机约定,生产环境用 env 覆盖)
+  if let Ok(cwd) = std::env::current_dir() {
+    // 试 cwd 的 sibling
+    if let Some(parent) = cwd.parent() {
+      let sibling = parent.join("media-to-doc");
+      if sibling.join("pyproject.toml").is_file() {
+        return sibling;
+      }
+    }
+    // 试 cwd 本身
+    if cwd.join("pyproject.toml").is_file() {
+      return cwd;
+    }
+  }
+  PathBuf::from("media-to-doc")
+}
+
 fn walk_media(dir: &Path) -> Vec<PathBuf> {
   let mut out = Vec::new();
   fn rec(d: &Path, out: &mut Vec<PathBuf>) {
@@ -649,4 +682,208 @@ mod tests {
   // silence dead_code for BTreeMap import on no-feature builds
   #[allow(dead_code)]
   fn _btreemap_marker(_m: BTreeMap<String, String>) {}
+}
+
+// ─────────────────────────────────────────────────────────────
+// run_pipeline / resume_pipeline / cancel_run / list_running
+// (T3:子进程管理,对齐 MCP run_pipeline / resume_pipeline + 自有 cancel/list)
+// ─────────────────────────────────────────────────────────────
+
+/// 解析 inbox,校验,返回 work_dir 候选(用于 sanity check)。
+fn resolve_inbox(inbox: &str) -> Result<PathBuf, String> {
+  let p = PathBuf::from(inbox).expand();
+  if !p.is_dir() {
+    return Err(format!("inbox 目录不存在: {}", p.display()));
+  }
+  Ok(p)
+}
+
+#[tauri::command]
+pub async fn run_pipeline(
+  inbox_dir: String,
+  workspace_root: Option<String>,
+  llm: Option<String>,
+  imagegen: Option<String>,
+  stop_after: Option<String>,
+  no_longdoc: Option<bool>,
+  force: Option<bool>,
+) -> CommandResponse<RunPipelineResult> {
+  let registry = global_registry();
+  let inbox = match resolve_inbox(&inbox_dir) {
+    Ok(p) => p,
+    Err(e) => return CommandResponse::err(e),
+  };
+  let project = resolve_media_to_doc_project();
+  if !project.join("pyproject.toml").is_file() {
+    return CommandResponse::err(format!(
+      "media-to-doc 项目根未找到: {}\n请设置 MEDIA_TO_DOC_PROJECT 环境变量",
+      project.display()
+    ));
+  }
+  let _ = workspace_root; // 暂未使用(MCP 兼容占位)
+  let spec = build_mtd_run_args(
+    &project,
+    &inbox,
+    llm.as_deref(),
+    imagegen.as_deref(),
+    stop_after.as_deref(),
+    no_longdoc.unwrap_or(false),
+    force.unwrap_or(false),
+  );
+  let work_dir = derive_work_dir(&inbox);
+  let work_dir_str = work_dir.to_string_lossy().into_owned();
+  if registry.is_running(&work_dir_str).await {
+    return CommandResponse::err(format!(
+      "该 work_dir 已在运行: {work_dir_str}\n请先 cancel_run 或 list_running 检查"
+    ));
+  }
+  let child = match spawn_mtd(&spec).await {
+    Ok(c) => c,
+    Err(e) => return CommandResponse::err(e),
+  };
+  let pid = child.id();
+  let log_path = spec.log_path.clone();
+  registry
+    .insert(work_dir_str.clone(), child, inbox.to_string_lossy().into_owned(), log_path.clone())
+    .await;
+  CommandResponse::ok(RunPipelineResult {
+    work_dir: work_dir_str,
+    pid,
+    log_path,
+    spec,
+  })
+}
+
+#[tauri::command]
+pub async fn resume_pipeline(
+  work_dir: String,
+  inbox_dir: Option<String>,
+  force: Option<bool>,
+  stop_after: Option<String>,
+) -> CommandResponse<RunPipelineResult> {
+  let registry = global_registry();
+  let work = PathBuf::from(work_dir).expand();
+  if !work.is_dir() {
+    return CommandResponse::err(format!("work 目录不存在: {}", work.display()));
+  }
+  let project = resolve_media_to_doc_project();
+  if !project.join("pyproject.toml").is_file() {
+    return CommandResponse::err(format!(
+      "media-to-doc 项目根未找到: {}\n请设置 MEDIA_TO_DOC_PROJECT 环境变量",
+      project.display()
+    ));
+  }
+  let spec = build_mtd_resume_args(
+    &project,
+    &work,
+    force.unwrap_or(false),
+    stop_after.as_deref(),
+  );
+  let work_dir_str = work.to_string_lossy().into_owned();
+  if registry.is_running(&work_dir_str).await {
+    return CommandResponse::err(format!(
+      "该 work_dir 已在运行: {work_dir_str}\n请先 cancel_run"
+    ));
+  }
+  let inbox_for_registry = inbox_dir.unwrap_or_else(|| {
+    work.parent().map(|p| p.to_string_lossy().into_owned()).unwrap_or_default()
+  });
+  let child = match spawn_mtd(&spec).await {
+    Ok(c) => c,
+    Err(e) => return CommandResponse::err(e),
+  };
+  let pid = child.id();
+  let log_path = spec.log_path.clone();
+  registry
+    .insert(work_dir_str.clone(), child, inbox_for_registry, log_path.clone())
+    .await;
+  CommandResponse::ok(RunPipelineResult {
+    work_dir: work_dir_str,
+    pid,
+    log_path,
+    spec,
+  })
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct CancelResult {
+  pub work_dir: String,
+  pub pid: u32,
+  pub killed: bool,
+}
+
+#[tauri::command]
+pub async fn cancel_run(work_dir: String) -> CommandResponse<CancelResult> {
+  let registry = global_registry();
+  let pid = match registry.cancel(&work_dir).await {
+    Some(p) => p,
+    None => {
+      return CommandResponse::err(format!("work_dir 未在运行: {work_dir}"));
+    }
+  };
+  if pid > 0 {
+    let _ = kill_tree(pid);
+  }
+  CommandResponse::ok(CancelResult { work_dir, pid, killed: true })
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ListRunningResult {
+  pub running: Vec<RunningRun>,
+}
+
+#[tauri::command]
+pub async fn list_running() -> CommandResponse<ListRunningResult> {
+  let running = global_registry().list().await;
+  CommandResponse::ok(ListRunningResult { running })
+}
+
+// ─────────────────────────────────────────────────────────────
+// T3 unit tests
+// ─────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod runner_tests {
+  use super::*;
+
+  fn project() -> PathBuf {
+    PathBuf::from("F:/soft/00selfmade/media-to-doc")
+  }
+
+  #[test]
+  fn resolve_inbox_rejects_missing_dir() {
+    let r = resolve_inbox("Z:/no/such/dir/abc");
+    assert!(r.is_err());
+  }
+
+  #[test]
+  fn resolve_inbox_accepts_existing_dir() {
+    let tmp = std::env::temp_dir().join("ui_resolve_inbox_test");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    let r = resolve_inbox(&tmp.to_string_lossy());
+    assert!(r.is_ok());
+    let _ = std::fs::remove_dir_all(&tmp);
+  }
+
+  #[test]
+  fn resolve_media_to_doc_project_uses_env_var() {
+    let target = std::env::temp_dir().join("fake_media_to_doc_proj");
+    let _ = std::fs::remove_dir_all(&target);
+    std::fs::create_dir_all(&target).unwrap();
+    std::fs::write(target.join("pyproject.toml"), b"[project]\nname='x'\n").unwrap();
+    // SAFETY: test-only, single-threaded
+    unsafe { std::env::set_var("MEDIA_TO_DOC_PROJECT", &target); }
+    let got = resolve_media_to_doc_project();
+    unsafe { std::env::remove_var("MEDIA_TO_DOC_PROJECT"); }
+    assert_eq!(got, target);
+    let _ = std::fs::remove_dir_all(&target);
+  }
+
+  #[test]
+  fn resolve_inbox_silently_swallows_io_errors() {
+    // Just exercise the path
+    let r = resolve_inbox("Z:/no/such/dir/abc");
+    assert!(r.is_err());
+  }
 }

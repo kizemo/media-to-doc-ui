@@ -19,9 +19,12 @@ tauri-build = { version = "2", features = [] }
 tauri = { version = "2", features = [] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+tokio = { version = "1", features = ["process", "io-util", "sync", "rt", "fs", "macros", "time"] }
+once_cell = "1"
 
-# W14-B 启动:W14-B+ 实装 commands 时再加 tokio / subprocess / reqwest
-# 当前 MVP:仅 hello world 验证 Tauri 链路
+# W14-B+ 实装:
+# - tokio process:run_pipeline / cancel_run 子进程管理
+# - once_cell:RunRegistry 共享 State(W14-B+ 备用,T3 暂用 Mutex)
 
 [profile.release]
 # panic = "abort" # Strip debug info for smaller binaries

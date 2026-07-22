@@ -13,12 +13,18 @@
 use serde::Serialize;
 
 mod commands;
+mod python_bridge;
+mod runner;
 mod types;
 
 pub use commands::{
-  check_status, list_courses, list_outputs, read_lecture, CheckStatusResult, CourseEntry,
-  ListCoursesResult, ListOutputsResult, OutputsGroups, ReadLectureResult, StageStatus,
+  cancel_run, check_status, list_courses, list_outputs, list_running, read_lecture,
+  resume_pipeline, run_pipeline, CancelResult, CheckStatusResult, CourseEntry,
+  ListCoursesResult, ListOutputsResult, ListRunningResult, OutputsGroups, ReadLectureResult,
+  StageStatus,
 };
+pub use python_bridge::{get_run_metrics, list_runs, probe, ProbeResult};
+pub use runner::{RunPipelineResult, RunRegistry, RunningRun, SpawnSpec};
 pub use types::{CommandResponse, SUPPORTED_EXTS};
 
 #[derive(Serialize)]
@@ -51,6 +57,7 @@ fn ping(message: String) -> String {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+  runner::init_registry();
   tauri::Builder::default()
     .invoke_handler(tauri::generate_handler![
       // W14-B hello world
@@ -61,6 +68,14 @@ pub fn run() {
       check_status,
       list_outputs,
       read_lecture,
+      // W14-B+ T3 4 个子进程 commands
+      run_pipeline,
+      resume_pipeline,
+      cancel_run,
+      list_running,
+      // W14-B+ T4 2 个 Python API commands
+      get_run_metrics,
+      list_runs,
     ])
     .run(tauri::generate_context!())
     .expect("error while running media-to-doc UI");
