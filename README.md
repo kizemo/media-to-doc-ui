@@ -1,15 +1,17 @@
 # media-to-doc UI
 
-> **Phase 2 / v1.3 候选** — Tauri 2 桌面壳,把 `media-to-doc` Python 流水线包成"3 次点击跑通"的桌面应用。
+> **Phase 2 / v1.3+** — Tauri 2 桌面壳,把 `media-to-doc` Python 流水线包成"3 次点击跑通"的桌面应用。
 
 ## 状态
 
-W14-B 启动骨架(2026-07-22):
+W14-B+ → v1.4.0 dev 模式改进(2026-07-22):
 - Tauri CLI 2.11.4 已装(`~/.cargo/bin/tauri.exe`)
 - 项目骨架就位:`src-tauri/`(Rust 后端)+ `src/`(前端,纯 HTML/CSS/JS,无框架)
-- 最小 hello world:`app_info` / `ping` 2 个 Tauri commands + 前端 IPC 调用
-- **首次 `cargo tauri dev` 未跑**(公司 VPN HTTPS MITM 撞 Cargo sparse SSL,Tauri 数百个依赖 crate 拉不下来)
-- 下次会话:换网络环境或预 vendor dependencies,然后跑 build
+- 12 个 Tauri commands 实装(W14-B+ hello world + W14-B+ 8 commands + W14-B+2 read_log + W14-C list_all_runs)
+- **`cargo tauri dev` 直接启动**(W14-D E2E 撞墙根因:旧 config `devUrl=http://localhost:1420` + `beforeDevCommand=""` 需 `python -m http.server 1420` 占位;W14-D v1.4.0 删 `devUrl` 字段,dev 模式也走 `frontendDist=../src` 静态资源,无需 dev server 也不需 beforeDevCommand)
+- 8 commands 等价验证 8/8 OK(W14-D E2E 回归)
+- 多课程并发(W14-C,`max_concurrent=3` + LRU 100 + 2s cancel)
+- NSIS installer + portable 已发(W14-D C,GitHub Release v1.3.0)
 
 ## 架构(详见 [ARCHITECTURE.md](./ARCHITECTURE.md))
 
@@ -72,10 +74,28 @@ git-fetch-with-cli = true
 # 1. 切到项目
 cd F:/soft/00selfmade/media-to-doc-ui
 
-# 2. 启动 dev(首次会拉数百个 Tauri 依赖 crate,5-15min)
+# 2. 启动 dev(增量编译 ~30-60s,首次会拉数百个 Tauri 依赖 crate,5-15min)
 cargo tauri dev
 
-# 3. 浏览器窗口自动开 → 看 hello world + ping 回环
+# 3. 浏览器窗口自动开 → 看 5 tab SPA(Inbox / Run / Output / Health / Learn)
+#
+# 不需要任何 dev server / python http.server 占位:
+# - tauri.conf.json 已删 devUrl(W14-D v1.4.0 改进)
+# - dev 模式直接走 frontendDist=../src 静态资源
+# - 之前 W14-D E2E 撞墙的 `python -m http.server 1420` hack 不再需要
+```
+
+环境变量(可选,主仓路径 / 工具定位):
+
+```bash
+# 主仓路径(默认 F:/soft/00selfmade/media-to-doc,可省略)
+export MEDIA_TO_DOC_PROJECT="F:/soft/00selfmade/media-to-doc"
+
+# uv 二进制路径(默认 ~/.local/bin/uv 或 PATH 中)
+export UV_BIN=/c/Users/Duanyi/.local/bin/uv
+
+# workspace 根目录(默认主仓 workspace/)
+export MEDIA_TO_DOC_WORKSPACE="F:/soft/00selfmade/media-to-doc/workspace"
 ```
 
 ## 与 media-to-doc 主仓的关系
