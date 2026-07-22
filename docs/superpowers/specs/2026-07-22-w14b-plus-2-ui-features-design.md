@@ -143,6 +143,8 @@ pub async fn read_log(
 - `offset` 单调递增由前端维护,无需文件锁
 - `max_lines` 默认 200,硬上限 2000(防 DoS)
 - `truncated` 当 `total_bytes < offset` 为 true,前端下次从 0 开始读
+- `truncated_to_lines` 当返回的行数 == `max_lines` 且文件内还有更多行时为 true;`new_offset` 指向已返回内容的字节末尾,前端下次带同样 `max_lines` 继续读剩余部分
+- **典型 poll**:日志稳定时 0 bytes、log 增长时一次返回若干行、`truncated_to_lines` 罕见(只在刚 spawn uv 启动 1-2s 内大量 stage 启动日志)
 
 **测试**:
 - `read_log_returns_empty_when_offset_equals_size`
@@ -170,23 +172,46 @@ pub struct ReadLectureResult {
 
 **3 级 fallback 链**(在 `read_lecture_impl` 内):
 ```rust
-let candidates = match (version.as_str(), fmt.as_str()) {
-    ("raw", "md")   => vec!["<stem>.md"],
-    ("raw", "html") => vec!["<stem>.html", "<stem>.md"],   // html 缺 → md
-    ("cleaned", "md")   => vec!["<stem>_cleaned.md"],
-    ("cleaned", "html") => vec!["<stem>_cleaned.html", "<stem>_cleaned.md"],
-    ("final", "md")     => vec!["<stem>_final.md"],
-    ("final", "html")   => vec!["<stem>_final.html", "<stem>_final.md"],
+// 每个 (version, fmt) 对应 1 个目标文件名(没有 html→md 的同版本降级,
+// 因为 html→md 是同 version 不同 fmt 的降级,3 级 fallback 解决的是不同布局的优先级)
+let primary = match (version.as_str(), fmt.as_str()) {
+    ("raw", "md")       => "<stem>.md",
+    ("raw", "html")     => "<stem>.html",
+    ("cleaned", "md")   => "<stem>_cleaned.md",
+    ("cleaned", "html") => "<stem>_cleaned.html",
+    ("final", "md")     => "<stem>_final.md",
+    ("final", "html")   => "<stem>_final.html",
     _ => return err,
 };
 
-for rel in &candidates {
-    let p1 = output_final.join(rel);
-    if p1.is_file() { return ok(p1, "output_final"); }
-}
-for rel in &candidates {
-    let p2 = work.join("chapters/raw/<stem>").join(rel);
-    if p2.is_file() { return ok(p2, "legacy"); }
+// html 缺 → 用同 version 的 md 兜底(只针对 fmt=="html" 触发)
+let md_fallback = match version.as_str() {
+    "raw"     => Some("<stem>.md"),
+    "cleaned" => Some("<stem>_cleaned.md"),
+    "final"   => Some("<stem>_final.md"),
+    _ => None,
+};
+
+// 3 级查找顺序:
+//   1) <output_final>/<primary>            W12-D 真相
+//   2) <output_final>/<md_fallback>         W12-D 真相(html→md 兜底)
+//   3) <work>/chapters/raw/<stem>/<primary> W3-W11 legacy
+let output_final = inbox.join("output_final");
+let legacy = work.join("chapters").join("raw").join(&stem);
+let attempts = [
+    (output_final.join(primary.replace("{stem}", &stem)), "output_final", None),
+    (
+        md_fallback
+            .filter(|_| fmt == "html")
+            .map(|t| output_final.join(t.replace("{stem}", &stem))),
+        "output_final",
+        Some("html 版本未生成,fallback 到 md"),
+    ),
+    (legacy.join(primary.replace("{stem}", &stem)), "legacy", None),
+];
+
+for (path, source, note) in attempts.into_iter().flatten() {
+    if path.is_file() { return ok(path, source, note); }
 }
 return err;
 ```
@@ -202,10 +227,16 @@ return err;
 **marked.js 引入**:
 ```html
 <script src="https://unpkg.com/marked@12.0.0/marked.min.js"
-        integrity="sha384-<SRI>"
+        integrity="sha384-2LfWAqRonsfHs7a9e9Rt0M4g6aHJBzF5Y2K4e1u3W1X8D9jZ3Y2K1X0Vf7N6l5M4o"
         crossorigin="anonymous"></script>
 ```
-SRI hash 需在写 spec 时用 https://www.srihash.org/ 算,落到 commit 时再贴。
+SRI 占位 hash 在 spec 提交时是占位字符串;**真正落地**必须在 index.html commit 前用下面命令算真值替换:
+```bash
+curl -sL https://unpkg.com/marked@12.0.0/marked.min.js \
+  | openssl dgst -sha384 -binary \
+  | openssl base64 -A
+```
+输出形如 `sha384-<base64>` 替换占位;锁 marked 版本号 12.0.0 不变(供应链风险隔离)。
 
 **modal CSS**(追加):
 ```css
