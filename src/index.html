@@ -4,6 +4,9 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>media-to-doc</title>
+  <script src="https://unpkg.com/marked@12.0.0/marked.min.js"
+          integrity="sha384-NNQgBjjuhtXzPmmy4gurS5X7P4uTt1DThyevz4Ua0IVK5+kazYQI1W27JHjbbxQz"
+          crossorigin="anonymous"></script>
   <style>
     /* W14-B+ 单 SPA + 侧边栏布局 */
     :root {
@@ -165,6 +168,36 @@
     .stage-dot.completed { background: rgba(76,175,80,0.3); color: var(--green); border-color: var(--green); }
     .stage-dot.in_progress { background: rgba(255,183,77,0.3); color: var(--yellow); border-color: var(--yellow); }
     .stage-dot.failed { background: rgba(239,83,80,0.3); color: var(--red); border-color: var(--red); }
+    .modal-backdrop {
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,0.7);
+      display: none; align-items: center; justify-content: center;
+      z-index: 2000;
+    }
+    .modal-backdrop.open { display: flex; }
+    .modal {
+      width: 80vw; height: 80vh;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      display: flex; flex-direction: column;
+    }
+    .modal-toolbar {
+      padding: 12px 16px; border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; gap: 12px;
+    }
+    .modal-toolbar .source { color: var(--fg-muted); font-size: 11px; }
+    .modal-toolbar .spacer { flex: 1; }
+    .modal-body { flex: 1; overflow: auto; padding: 16px; }
+    .modal-body iframe { width: 100%; height: 100%; border: 0; background: #fff; }
+    .modal-body pre { white-space: pre-wrap; word-break: break-word; }
+    .modal-body h1, .modal-body h2, .modal-body h3 {
+      color: var(--fg); border-bottom: 1px solid var(--border);
+      padding-bottom: 4px; margin-top: 16px;
+    }
+    .modal-body code { background: var(--bg); padding: 2px 4px; border-radius: 3px; }
+    .modal-body table { border-collapse: collapse; margin: 8px 0; }
+    .modal-body th, .modal-body td { border: 1px solid var(--border); padding: 4px 8px; }
   </style>
 </head>
 <body>
@@ -312,6 +345,18 @@
       </div>
     </div>
   </main>
+
+  <div class="modal-backdrop" id="modal-backdrop">
+    <div class="modal">
+      <div class="modal-toolbar">
+        <span id="modal-title">Lecture</span>
+        <span class="source" id="modal-source"></span>
+        <span class="spacer"></span>
+        <button class="secondary" id="modal-close">×</button>
+      </div>
+      <div class="modal-body" id="modal-body"></div>
+    </div>
+  </div>
 
   <div id="toast-container"></div>
 
@@ -486,11 +531,29 @@
         return `<div class="stage-dot ${status}" title="${s}: ${status}">${s.slice(0, 3)}</div>`;
       }).join('');
     }
-    async function tailLog(path, n = 50) {
-      // 浏览器没文件系统,前端用 fetch 不行;这里用 mtd.log 已经在 Tauri 内,
-      // 简化:前端不直读文件,改用 tauri-plugin-fs 或后端 read_file command
-      // W14-B+ 先显示 "use Tauri fs plugin" 提示
-      $('log-tail').textContent = `(log tail 暂未实装 — 走 Tauri fs plugin 或后端 read_file command,见 W14-B+2)\nlog path: ${path || '?'}`;
+    let lastLogOffset = 0;
+    async function tailLog(path, n = 200) {
+      if (!path) return;
+      try {
+        const r = await invoke('read_log', { path, offset: lastLogOffset, maxLines: n });
+        if (!r.ok) { $('log-tail').textContent = '(read_log 失败: ' + r.error + ')'; return; }
+        if (r.data.truncated) {
+          lastLogOffset = 0;
+          $('log-tail').textContent = '';   // truncate → 清空重读
+        }
+        if (r.data.content) {
+          const pre = $('log-tail');
+          pre.textContent += r.data.content;
+          // 限制 pre 长度(避免无限增长)
+          if (pre.textContent.length > 200000) {
+            pre.textContent = pre.textContent.slice(-100000);
+          }
+          pre.scrollTop = pre.scrollHeight;
+        }
+        lastLogOffset = r.data.new_offset;
+      } catch (e) {
+        $('log-tail').textContent = '(read_log 异常: ' + e + ')';
+      }
     }
 
     // ───────── Output ─────────
@@ -510,16 +573,20 @@
         el.innerHTML = `<div class="empty">work_dir: ${d.work_dir}<br>stem: ${d.stem}<br>(无产物 — 请先跑流水线)</div>`;
         return;
       }
+      function readBtn(file, version, fmt) {
+        return `<button class="secondary" style="margin:2px 4px 2px 0;padding:4px 8px;font-size:11px"
+                        onclick="openReadLecture('${d.inbox.replace(/'/g, "\\'")}','${version}','${fmt}')">📄 ${file}</button>`;
+      }
       el.innerHTML = `
         <div style="font-family: ui-monospace, monospace; font-size: 12px; color: var(--fg-muted); margin-bottom: 8px;">
           work_dir: ${d.work_dir} · stem: ${d.stem}
         </div>
-        <div><strong>raw_md:</strong> ${d.outputs.raw_md.join(', ') || '(none)'}</div>
-        <div><strong>raw_html:</strong> ${d.outputs.raw_html.join(', ') || '(none)'}</div>
-        <div><strong>cleaned_md:</strong> ${d.outputs.cleaned_md.join(', ') || '(none)'}</div>
-        <div><strong>final_html:</strong> ${d.outputs.final_html.join(', ') || '(none)'}</div>
-        <div><strong>images:</strong> ${d.outputs.images.join(', ') || '(none)'}</div>
-        <div><strong>manifests:</strong> ${d.outputs.manifests.join(', ') || '(none)'}</div>
+        <div><strong>raw_md:</strong> ${(d.outputs.raw_md || []).map(f => readBtn(f, 'raw', 'md')).join('') || '(none)'}</div>
+        <div><strong>raw_html:</strong> ${(d.outputs.raw_html || []).map(f => readBtn(f, 'raw', 'html')).join('') || '(none)'}</div>
+        <div><strong>cleaned_md:</strong> ${(d.outputs.cleaned_md || []).map(f => readBtn(f, 'cleaned', 'md')).join('') || '(none)'}</div>
+        <div><strong>final_html:</strong> ${(d.outputs.final_html || []).map(f => readBtn(f, 'final', 'html')).join('') || '(none)'}</div>
+        <div><strong>images:</strong> ${(d.outputs.images || []).join(', ') || '(none)'}</div>
+        <div><strong>manifests:</strong> ${(d.outputs.manifests || []).join(', ') || '(none)'}</div>
         <h3 style="margin-top: 16px; font-size: 13px; color: var(--fg-muted);">Stages</h3>
         <div>${Object.entries(d.stages || {}).map(([k, v]) => `<span class="pill ${v}">${k}: ${v}</span> `).join('')}</div>
       `;
@@ -548,6 +615,47 @@
     }
     $('refresh-health').addEventListener('click', refreshHealth);
     $('refresh-runs').addEventListener('click', refreshRuns);
+
+    // ───────── Modal ─────────
+    function showModal() { $('modal-backdrop').classList.add('open'); }
+    function hideModal() {
+      $('modal-backdrop').classList.remove('open');
+      $('modal-body').innerHTML = '';
+    }
+    $('modal-close').addEventListener('click', hideModal);
+    $('modal-backdrop').addEventListener('click', (e) => {
+      if (e.target.id === 'modal-backdrop') hideModal();
+    });
+    async function openReadLecture(inbox, version, fmt) {
+      $('modal-title').textContent = `${version} · ${fmt}`;
+      $('modal-source').textContent = '(loading…)';
+      $('modal-body').innerHTML = '<div class="empty">loading…</div>';
+      showModal();
+      try {
+        const r = await invoke('read_lecture', { inboxDir: inbox, version, fmt });
+        const body = $('modal-body');
+        if (!r.ok) {
+          body.innerHTML = '<div class="empty">' + r.error + '</div>';
+          $('modal-source').textContent = '(error)';
+          return;
+        }
+        $('modal-source').textContent = `source: ${r.data.source} · ${(r.data.size_bytes/1024).toFixed(1)} KB`;
+        if (r.data.note) $('modal-source').textContent += ` · ${r.data.note}`;
+        if (fmt === 'md' && window.marked) {
+          body.innerHTML = marked.parse(r.data.content);
+        } else if (fmt === 'html') {
+          const iframe = document.createElement('iframe');
+          iframe.sandbox = 'allow-same-origin';
+          iframe.srcdoc = r.data.content;
+          body.innerHTML = '';
+          body.appendChild(iframe);
+        } else {
+          body.innerHTML = '<pre>' + r.data.content.replace(/</g, '&lt;') + '</pre>';
+        }
+      } catch (e) {
+        $('modal-body').innerHTML = '<div class="empty">invoke 异常: ' + e + '</div>';
+      }
+    }
 
     // ───────── Boot ─────────
     await loadAppInfo();
