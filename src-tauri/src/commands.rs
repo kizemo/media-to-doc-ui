@@ -426,6 +426,102 @@ pub fn read_lecture(
 }
 
 // ─────────────────────────────────────────────────────────────
+// read_log —— 读 mtd.log 增量(tail),支持 offset
+// ─────────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ReadLogResult {
+  /// 增量内容(从 offset 到 max_lines 行 / 文件末尾)
+  pub content: String,
+  /// 新 offset(下次 read_log 的起点)
+  pub new_offset: u64,
+  /// 当前文件总字节数
+  pub total_bytes: u64,
+  /// 文件被 truncate(罕见)时为 true,前端下次从 0 开始读
+  pub truncated: bool,
+  /// 命中 max_lines 上限,文件内还有更多行时为 true
+  pub truncated_to_lines: bool,
+}
+
+/// 实际读 log:打开文件 → seek offset → 读最多 max_lines 行。
+///
+/// `path` 校验:`ends_with("mtd.log")`(本机用,信任用户,不做沙箱)。
+/// `offset > total_bytes` 视为 truncate,从头重读。
+pub fn read_log_impl(
+  path: String,
+  offset: u64,
+  max_lines: usize,
+) -> CommandResponse<ReadLogResult> {
+  let p = PathBuf::from(&path);
+  if !p.to_string_lossy().ends_with("mtd.log") {
+    return CommandResponse::err(format!(
+      "仅支持读 mtd.log 文件,收到: {}\n(本机信任用户,但拒绝非 log 文件的随机路径)",
+      p.display()
+    ));
+  }
+  if !p.is_file() {
+    return CommandResponse::err(format!(
+      "log 文件不存在: {}\n(请先启动 run_pipeline / resume_pipeline)",
+      p.display()
+    ));
+  }
+  let metadata = match std::fs::metadata(&p) {
+    Ok(m) => m,
+    Err(e) => return CommandResponse::err(format!("读 metadata 失败: {e}")),
+  };
+  let total_bytes = metadata.len();
+  let truncated = offset > total_bytes;
+  let effective_offset = if truncated { 0 } else { offset };
+  let file = match std::fs::File::open(&p) {
+    Ok(f) => f,
+    Err(e) => return CommandResponse::err(format!("打开 {} 失败: {e}", p.display())),
+  };
+  let mut reader = std::io::BufReader::new(file);
+  use std::io::Seek;
+  if let Err(e) = reader.seek(std::io::SeekFrom::Start(effective_offset)) {
+    return CommandResponse::err(format!("seek {} 失败: {e}", effective_offset));
+  }
+  let mut content = String::new();
+  let mut buf = String::new();
+  let mut lines_read = 0usize;
+  let mut bytes_read = 0usize;
+  let cap = max_lines.max(1).min(2000);
+  use std::io::BufRead;
+  loop {
+    buf.clear();
+    let n = match reader.read_line(&mut buf) {
+      Ok(0) => break,
+      Ok(n) => n,
+      Err(e) => return CommandResponse::err(format!("read_line 失败: {e}")),
+    };
+    bytes_read += n;
+    content.push_str(&buf);
+    lines_read += 1;
+    if lines_read >= cap {
+      break;
+    }
+  }
+  let truncated_to_lines = lines_read >= cap && bytes_read < (total_bytes - effective_offset) as usize;
+  let new_offset = effective_offset + bytes_read as u64;
+  CommandResponse::ok(ReadLogResult {
+    content,
+    new_offset,
+    total_bytes,
+    truncated,
+    truncated_to_lines,
+  })
+}
+
+#[tauri::command]
+pub async fn read_log(
+  path: String,
+  offset: u64,
+  max_lines: usize,
+) -> CommandResponse<ReadLogResult> {
+  read_log_impl(path, offset, max_lines)
+}
+
+// ─────────────────────────────────────────────────────────────
 // helpers
 // ─────────────────────────────────────────────────────────────
 
@@ -682,6 +778,87 @@ mod tests {
   // silence dead_code for BTreeMap import on no-feature builds
   #[allow(dead_code)]
   fn _btreemap_marker(_m: BTreeMap<String, String>) {}
+
+  // ────────────────────────────────────────────────────────────
+  // read_log 测试(W14-B+2 T1)
+  // ────────────────────────────────────────────────────────────
+
+  #[test]
+  fn read_log_errors_on_missing_file() {
+    let r = read_log_impl(
+      std::env::temp_dir().join("definitely_not_here_xyz_mtd.log").to_string_lossy().into_owned(),
+      0, 200,
+    );
+    assert!(!r.ok, "missing file should err");
+    let err = r.error.unwrap();
+    assert!(err.contains("not found") || err.contains("不存在"));
+  }
+
+  #[test]
+  fn read_log_returns_empty_when_offset_equals_size() {
+    let tmp = tmpdir("read_log_eq_size");
+    let p = tmp.join("mtd.log");
+    fs::write(&p, b"line1\nline2\n").unwrap();
+    let size = fs::metadata(&p).unwrap().len();
+    let r = read_log_impl(p.to_string_lossy().into_owned(), size, 200);
+    assert!(r.ok, "{:?}", r);
+    let d = r.data.unwrap();
+    assert_eq!(d.content, "");
+    assert_eq!(d.new_offset, size);
+    assert_eq!(d.total_bytes, size);
+    assert!(!d.truncated);
+    assert!(!d.truncated_to_lines);
+    let _ = fs::remove_dir_all(&tmp);
+  }
+
+  #[test]
+  fn read_log_returns_content_from_offset() {
+    let tmp = tmpdir("read_log_offset");
+    let p = tmp.join("mtd.log");
+    let body = b"line1\nline2\nline3\n";
+    fs::write(&p, body).unwrap();
+    // 跳过 "line1\n"(7 bytes)从 "line2\n" 开始
+    let r = read_log_impl(p.to_string_lossy().into_owned(), 6, 200);
+    assert!(r.ok, "{:?}", r);
+    let d = r.data.unwrap();
+    assert_eq!(d.content, "line2\nline3\n");
+    assert_eq!(d.new_offset, body.len() as u64);
+    assert_eq!(d.total_bytes, body.len() as u64);
+    assert!(!d.truncated);
+    let _ = fs::remove_dir_all(&tmp);
+  }
+
+  #[test]
+  fn read_log_resets_on_truncate() {
+    let tmp = tmpdir("read_log_truncate");
+    let p = tmp.join("mtd.log");
+    fs::write(&p, b"very long original content").unwrap();
+    // 文件被 truncate 到 5 bytes,前端 offset 仍是 25
+    fs::write(&p, b"short").unwrap();
+    let r = read_log_impl(p.to_string_lossy().into_owned(), 25, 200);
+    assert!(r.ok, "{:?}", r);
+    let d = r.data.unwrap();
+    assert!(d.truncated, "truncated flag should be set");
+    assert_eq!(d.content, "short");
+    assert_eq!(d.new_offset, 5);
+    let _ = fs::remove_dir_all(&tmp);
+  }
+
+  #[test]
+  fn read_log_caps_max_lines() {
+    let tmp = tmpdir("read_log_caps");
+    let p = tmp.join("mtd.log");
+    let mut body = String::new();
+    for i in 0..500 { body.push_str(&format!("line {}\n", i)); }
+    fs::write(&p, body.as_bytes()).unwrap();
+    let r = read_log_impl(p.to_string_lossy().into_owned(), 0, 10);
+    assert!(r.ok, "{:?}", r);
+    let d = r.data.unwrap();
+    let line_count = d.content.lines().count();
+    assert_eq!(line_count, 10);
+    assert!(d.truncated_to_lines);
+    let _ = fs::remove_dir_all(&tmp);
+  }
 }
 
 // ─────────────────────────────────────────────────────────────

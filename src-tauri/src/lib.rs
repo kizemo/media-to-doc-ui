@@ -18,10 +18,10 @@ mod runner;
 mod types;
 
 pub use commands::{
-  cancel_run, check_status, list_courses, list_outputs, list_running, read_lecture,
+  cancel_run, check_status, list_courses, list_outputs, list_running, read_lecture, read_log,
   resume_pipeline, run_pipeline, CancelResult, CheckStatusResult, CourseEntry,
   ListCoursesResult, ListOutputsResult, ListRunningResult, OutputsGroups, ReadLectureResult,
-  StageStatus,
+  ReadLogResult, StageStatus,
 };
 pub use python_bridge::{get_run_metrics, list_runs, probe, ProbeResult};
 pub use runner::{RunPipelineResult, RunRegistry, RunningRun, SpawnSpec};
@@ -87,6 +87,8 @@ pub fn run() {
       // W14-B+ T4 2 个 Python API commands
       get_run_metrics,
       list_runs,
+      // W14-B+2 read_log(后端 log tail)
+      read_log,
     ])
     .run(tauri::generate_context!())
     .expect("error while running media-to-doc UI");
