@@ -333,18 +333,13 @@ pub struct ReadLectureResult {
   pub path: String,
   pub content: String,
   pub size_bytes: usize,
+  /// "output_final" = W12-D 真相
+  /// "legacy" = W3-W11 fallback
+  /// "fallback_md" = html 不存在自动降到同 version 的 md
+  pub source: String,
   #[serde(skip_serializing_if = "Option::is_none")]
   pub note: Option<String>,
 }
-
-const VERSION_TPL: &[(&str, &str, &str)] = &[
-  ("raw", "md", "{stem}.md"),
-  ("raw", "html", "{stem}.html"),
-  ("cleaned", "md", "{stem}_cleaned.md"),
-  ("cleaned", "html", "{stem}_cleaned.html"),
-  ("final", "md", "{stem}_final.md"),
-  ("final", "html", "{stem}_final.html"),
-];
 
 pub fn read_lecture_impl(
   inbox_dir: String,
@@ -352,11 +347,17 @@ pub fn read_lecture_impl(
   fmt: Option<String>,
 ) -> CommandResponse<ReadLectureResult> {
   let fmt = fmt.unwrap_or_else(|| "md".to_string());
-  let tpl = VERSION_TPL
-    .iter()
-    .find(|(v, f, _)| *v == version && *f == fmt)
-    .map(|(_, _, t)| *t);
-  let tpl = match tpl {
+  // (version, fmt) → 目标文件名(模板)
+  let primary_tpl = match (version.as_str(), fmt.as_str()) {
+    ("raw", "md")       => Some("{stem}.md"),
+    ("raw", "html")     => Some("{stem}.html"),
+    ("cleaned", "md")   => Some("{stem}_cleaned.md"),
+    ("cleaned", "html") => Some("{stem}_cleaned.html"),
+    ("final", "md")     => Some("{stem}_final.md"),
+    ("final", "html")   => Some("{stem}_final.html"),
+    _ => None,
+  };
+  let primary_tpl = match primary_tpl {
     Some(t) => t,
     None => {
       return CommandResponse::err(format!(
@@ -369,50 +370,69 @@ pub fn read_lecture_impl(
     return CommandResponse::err(format!("inbox 目录不存在: {}", inbox.display()));
   }
   let work = inbox.join("output");
+  let output_final = inbox.join("output_final");
   let stem = derive_stem(&work);
-  let rel = tpl.replace("{stem}", &stem);
-  let target = work.join("chapters").join("raw").join(&stem).join(&rel);
-  // html fallback 到 md 内容(对齐 Python 版)
-  if !target.is_file() && fmt == "html" {
-    let alt_rel = match version.as_str() {
-      "raw" => format!("{stem}.md"),
-      "cleaned" => format!("{stem}_cleaned.md"),
-      "final" => format!("{stem}_final.md"),
-      _ => unreachable!(),
+  let primary = primary_tpl.replace("{stem}", &stem);
+
+  // 尝试 1:W12-D output_final/<primary>
+  let p1 = output_final.join(&primary);
+  if p1.is_file() {
+    return read_ok(&p1, &version, &fmt, "output_final", None);
+  }
+  // 尝试 2(仅 fmt=="html"):W12-D output_final/<stem>_*.md(同 version)
+  if fmt == "html" {
+    let md_tpl = match version.as_str() {
+      "raw"     => Some("{stem}.md"),
+      "cleaned" => Some("{stem}_cleaned.md"),
+      "final"   => Some("{stem}_final.md"),
+      _ => None,
     };
-    let alt = work.join("chapters").join("raw").join(&stem).join(&alt_rel);
-    if alt.is_file() {
-      let content = match std::fs::read_to_string(&alt) {
-        Ok(s) => s,
-        Err(e) => return CommandResponse::err(format!("读 {} 失败: {e}", alt.display())),
-      };
-      return CommandResponse::ok(ReadLectureResult {
-        version: version.clone(),
-        fmt,
-        path: alt.to_string_lossy().into_owned(),
-        content: format!(
-          "# {stem} ({version} · html)\n\n(html 版本不存在,以下为 md 版本内容)\n\n{content}"
-        ),
-        size_bytes: content.len(),
-        note: Some("html 版本未生成,fallback 到 md".to_string()),
-      });
+    if let Some(t) = md_tpl {
+      let md_p = output_final.join(&t.replace("{stem}", &stem));
+      if md_p.is_file() {
+        return read_ok(
+          &md_p,
+          &version,
+          &fmt,
+          "output_final",
+          Some("html 版本未生成,fallback 到 md".to_string()),
+        );
+      }
     }
-    return CommandResponse::err(format!("讲义文件不存在: {}\n可能是 longdoc 阶段未跑或 render 未生成", target.display()));
   }
-  if !target.is_file() {
-    return CommandResponse::err(format!("讲义文件不存在: {}\n请先用 run_pipeline 跑流水线", target.display()));
+  // 尝试 3:W3-W11 legacy
+  let raw_dir = work.join("chapters").join("raw").join(&stem);
+  let p3 = raw_dir.join(&primary);
+  if p3.is_file() {
+    return read_ok(&p3, &version, &fmt, "legacy", None);
   }
-  let content = match std::fs::read_to_string(&target) {
+  // 全部 miss
+  CommandResponse::err(format!(
+    "讲义文件不存在:\n  - {}\n  - {}\n请先用 run_pipeline 跑流水线",
+    p1.display(),
+    p3.display()
+  ))
+}
+
+fn read_ok(
+  path: &Path,
+  version: &str,
+  fmt: &str,
+  source: &str,
+  note: Option<String>,
+) -> CommandResponse<ReadLectureResult> {
+  let content = match std::fs::read_to_string(path) {
     Ok(s) => s,
-    Err(e) => return CommandResponse::err(format!("读 {} 失败: {e}", target.display())),
+    Err(e) => return CommandResponse::err(format!("读 {} 失败: {e}", path.display())),
   };
   CommandResponse::ok(ReadLectureResult {
-    version,
-    fmt,
-    path: target.to_string_lossy().into_owned(),
-    size_bytes: content.len(),
+    version: version.to_string(),
+    fmt: fmt.to_string(),
+    path: path.to_string_lossy().into_owned(),
     content,
-    note: None,
+    size_bytes: std::fs::metadata(path).map(|m| m.len() as usize).unwrap_or(0),
+    source: source.to_string(),
+    note,
   })
 }
 
@@ -728,11 +748,16 @@ mod tests {
 
   #[test]
   fn read_lecture_falls_back_to_md_when_html_missing() {
+    // W14-B+2 T2:html→md fallback 现在走 output_final/ 路径
     let inbox = tmpdir("read_lecture_fallback");
+    // seed legacy stem:derive_stem 读 work/chapters/raw/<stem>/
     let work = inbox.join("output");
     let raw = work.join("chapters").join("raw").join("demo");
     fs::create_dir_all(&raw).unwrap();
-    fs::write(raw.join("demo_cleaned.md"), b"# cleaned md").unwrap();
+    // output_final:只有 cleaned.md,没有 html
+    let final_dir = inbox.join("output_final");
+    fs::create_dir_all(&final_dir).unwrap();
+    fs::write(final_dir.join("demo_cleaned.md"), b"# cleaned md").unwrap();
     // no html
     let r = read_lecture_impl(
       inbox.to_string_lossy().into_owned(),
@@ -742,6 +767,7 @@ mod tests {
     assert!(r.ok);
     let data = r.data.unwrap();
     assert!(data.content.contains("cleaned md"));
+    assert_eq!(data.source, "output_final");
     assert_eq!(data.note.as_deref(), Some("html 版本未生成,fallback 到 md"));
     let _ = fs::remove_dir_all(&inbox);
   }
@@ -857,6 +883,96 @@ mod tests {
     let line_count = d.content.lines().count();
     assert_eq!(line_count, 10);
     assert!(d.truncated_to_lines);
+    let _ = fs::remove_dir_all(&tmp);
+  }
+
+  // ────────────────────────────────────────────────────────────
+  // read_lecture W12-D 3 级 fallback 测试(W14-B+2 T2)
+  // ────────────────────────────────────────────────────────────
+
+  #[test]
+  fn read_lecture_prefers_output_final_over_legacy() {
+    let tmp = tmpdir("read_lecture_w12d_prefer");
+    let inbox = &tmp;
+    // W12-D:output_final/<stem>_cleaned.md
+    let final_dir = tmp.join("output_final");
+    fs::create_dir_all(&final_dir).unwrap();
+    fs::write(final_dir.join("course_cleaned.md"), b"# from output_final").unwrap();
+    // legacy:output/chapters/raw/course/course_cleaned.md
+    let work = tmp.join("output");
+    let raw = work.join("chapters").join("raw").join("course");
+    fs::create_dir_all(&raw).unwrap();
+    fs::write(raw.join("course_cleaned.md"), b"# from legacy").unwrap();
+    let r = read_lecture_impl(
+      inbox.to_string_lossy().into_owned(),
+      "cleaned".into(),
+      Some("md".into()),
+    );
+    assert!(r.ok, "{:?}", r);
+    let d = r.data.unwrap();
+    assert_eq!(d.source, "output_final");
+    assert!(d.content.contains("from output_final"));
+    let _ = fs::remove_dir_all(&tmp);
+  }
+
+  #[test]
+  fn read_lecture_falls_back_to_legacy_when_output_final_missing() {
+    let tmp = tmpdir("read_lecture_legacy_fallback");
+    let inbox = &tmp;
+    // 没有 output_final,只有 legacy
+    let work = tmp.join("output");
+    let raw = work.join("chapters").join("raw").join("course");
+    fs::create_dir_all(&raw).unwrap();
+    fs::write(raw.join("course.md"), b"# legacy raw").unwrap();
+    let r = read_lecture_impl(
+      inbox.to_string_lossy().into_owned(),
+      "raw".into(),
+      Some("md".into()),
+    );
+    assert!(r.ok, "{:?}", r);
+    let d = r.data.unwrap();
+    assert_eq!(d.source, "legacy");
+    assert!(d.content.contains("legacy raw"));
+    let _ = fs::remove_dir_all(&tmp);
+  }
+
+  #[test]
+  fn read_lecture_html_falls_back_to_md_with_note() {
+    let tmp = tmpdir("read_lecture_html_fallback");
+    let inbox = &tmp;
+    // seed legacy stem:derive_stem 读 work/chapters/raw/<stem>/
+    let work = tmp.join("output");
+    let raw = work.join("chapters").join("raw").join("course");
+    fs::create_dir_all(&raw).unwrap();
+    let final_dir = tmp.join("output_final");
+    fs::create_dir_all(&final_dir).unwrap();
+    // 只有 cleaned.md,没有 html
+    fs::write(final_dir.join("course_cleaned.md"), b"# cleaned md body").unwrap();
+    let r = read_lecture_impl(
+      inbox.to_string_lossy().into_owned(),
+      "cleaned".into(),
+      Some("html".into()),
+    );
+    assert!(r.ok, "{:?}", r);
+    let d = r.data.unwrap();
+    assert_eq!(d.source, "output_final");
+    assert!(d.note.is_some());
+    assert!(d.note.unwrap().contains("html") || d.content.contains("cleaned md body"));
+    let _ = fs::remove_dir_all(&tmp);
+  }
+
+  #[test]
+  fn read_lecture_errors_when_neither_layout_has_file() {
+    let tmp = tmpdir("read_lecture_missing");
+    let inbox = &tmp;
+    // 创建 output 但不放任何产物
+    fs::create_dir_all(tmp.join("output").join("chapters").join("raw")).unwrap();
+    let r = read_lecture_impl(
+      inbox.to_string_lossy().into_owned(),
+      "raw".into(),
+      Some("md".into()),
+    );
+    assert!(!r.ok);
     let _ = fs::remove_dir_all(&tmp);
   }
 }
