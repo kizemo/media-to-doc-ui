@@ -1,17 +1,17 @@
-//! 8 个 Tauri commands —— 对齐 media-to-doc MCP 8 工具(W7=6 + W8=2)。
+//! 10 个 Tauri commands —— 对齐 media-to-doc MCP 8 工具(W7=6 + W8=2) + W14-C 2 新。
 //!
 //! 结构(每个命令):
 //! - `*_impl` 纯函数(可单测,不入 Tauri 状态)
 //! - `#[tauri::command]` 薄包装(只做参数透传 + State 注入)
 //!
-//! 错误:Path 不存在 / state.json 缺失 / version 非法 / spawn 失败
+//! 错误:Path 不存在 / state.json 缺失 / version 非法 / spawn 失败 / 并发上限
 //! → `CommandResponse::err`。
 
 use std::path::{Path, PathBuf};
 
 use crate::runner::{
   build_mtd_resume_args, build_mtd_run_args, derive_work_dir, global_registry, kill_tree,
-  spawn_mtd, RunPipelineResult, RunningRun,
+  spawn_mtd, RunPipelineResult, RunStatusInfo, RunningRun,
 };
 
 use serde::Serialize;
@@ -573,7 +573,7 @@ impl PathExpand for PathBuf {
   }
 }
 
-fn default_workspace_root() -> PathBuf {
+pub fn default_workspace_root() -> PathBuf {
   if let Ok(v) = std::env::var("MEDIA_TO_DOC_WORKSPACE") {
     return PathBuf::from(v);
   }
@@ -980,6 +980,7 @@ mod tests {
 // ─────────────────────────────────────────────────────────────
 // run_pipeline / resume_pipeline / cancel_run / list_running
 // (T3:子进程管理,对齐 MCP run_pipeline / resume_pipeline + 自有 cancel/list)
+// W14-C:加并发上限检查 + list_all_runs 新命令
 // ─────────────────────────────────────────────────────────────
 
 /// 解析 inbox,校验,返回 work_dir 候选(用于 sanity check)。
@@ -1027,7 +1028,7 @@ pub async fn run_pipeline(
   let work_dir_str = work_dir.to_string_lossy().into_owned();
   if registry.is_running(&work_dir_str).await {
     return CommandResponse::err(format!(
-      "该 work_dir 已在运行: {work_dir_str}\n请先 cancel_run 或 list_running 检查"
+      "该 work_dir 已在运行: {work_dir_str}\n请先 cancel_run 或 list_all_runs 检查"
     ));
   }
   let child = match spawn_mtd(&spec).await {
@@ -1036,9 +1037,13 @@ pub async fn run_pipeline(
   };
   let pid = child.id();
   let log_path = spec.log_path.clone();
-  registry
+  match registry
     .insert(work_dir_str.clone(), child, inbox.to_string_lossy().into_owned(), log_path.clone())
-    .await;
+    .await
+  {
+    Ok(()) => {}
+    Err(e) => return CommandResponse::err(e),
+  }
   CommandResponse::ok(RunPipelineResult {
     work_dir: work_dir_str,
     pid,
@@ -1087,9 +1092,13 @@ pub async fn resume_pipeline(
   };
   let pid = child.id();
   let log_path = spec.log_path.clone();
-  registry
+  match registry
     .insert(work_dir_str.clone(), child, inbox_for_registry, log_path.clone())
-    .await;
+    .await
+  {
+    Ok(()) => {}
+    Err(e) => return CommandResponse::err(e),
+  }
   CommandResponse::ok(RunPipelineResult {
     work_dir: work_dir_str,
     pid,
@@ -1125,23 +1134,40 @@ pub struct ListRunningResult {
   pub running: Vec<RunningRun>,
 }
 
+/// 仅返回当前活跃的 run。
 #[tauri::command]
 pub async fn list_running() -> CommandResponse<ListRunningResult> {
   let running = global_registry().list().await;
   CommandResponse::ok(ListRunningResult { running })
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct ListAllRunsResult {
+  pub runs: Vec<RunStatusInfo>,
+  pub max_concurrent: usize,
+  pub active_count: usize,
+}
+
+/// W14-C:返回全量 run(活跃 + 最近 completed),含并发上限信息。
+#[tauri::command]
+pub async fn list_all_runs() -> CommandResponse<ListAllRunsResult> {
+  let registry = global_registry();
+  let runs = registry.list_all().await;
+  let active_count = registry.running_count().await;
+  CommandResponse::ok(ListAllRunsResult {
+    runs,
+    max_concurrent: registry.max_concurrent(),
+    active_count,
+  })
+}
+
 // ─────────────────────────────────────────────────────────────
-// T3 unit tests
+// T3 + W14-C unit tests
 // ─────────────────────────────────────────────────────────────
 
 #[cfg(test)]
 mod runner_tests {
   use super::*;
-
-  fn project() -> PathBuf {
-    PathBuf::from("F:/soft/00selfmade/media-to-doc")
-  }
 
   #[test]
   fn resolve_inbox_rejects_missing_dir() {

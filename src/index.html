@@ -8,7 +8,7 @@
           integrity="sha384-NNQgBjjuhtXzPmmy4gurS5X7P4uTt1DThyevz4Ua0IVK5+kazYQI1W27JHjbbxQz"
           crossorigin="anonymous"></script>
   <style>
-    /* W14-B+ 单 SPA + 侧边栏布局 */
+    /* W14-C 多课程并发 + 暗色主题 */
     :root {
       --bg: #1a1a1a;
       --bg-card: #252525;
@@ -198,6 +198,48 @@
     .modal-body code { background: var(--bg); padding: 2px 4px; border-radius: 3px; }
     .modal-body table { border-collapse: collapse; margin: 8px 0; }
     .modal-body th, .modal-body td { border: 1px solid var(--border); padding: 4px 8px; }
+    /* W14-C:多卡片 Run tab */
+    .run-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      margin-bottom: 12px;
+      overflow: hidden;
+    }
+    .run-card-header {
+      display: flex; align-items: center; gap: 12px;
+      padding: 10px 16px;
+      background: rgba(255,255,255,0.03);
+      border-bottom: 1px solid var(--border);
+      font-size: 13px;
+    }
+    .run-card-header .work-dir {
+      font-family: ui-monospace, monospace;
+      font-size: 12px;
+      color: var(--accent);
+      flex: 1;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .run-card-header .status-badge {
+      padding: 2px 8px; border-radius: 4px;
+      font-size: 11px; font-weight: 500;
+    }
+    .status-badge.running { background: rgba(255,183,77,0.2); color: var(--yellow); }
+    .status-badge.completed { background: rgba(76,175,80,0.2); color: var(--green); }
+    .status-badge.cancelled { background: rgba(239,83,80,0.2); color: var(--red); }
+    .status-badge.failed { background: rgba(239,83,80,0.2); color: var(--red); }
+    .run-card-body { padding: 12px 16px; }
+    .run-card-body pre { max-height: 150px; font-size: 11px; }
+    .run-card-footer {
+      padding: 8px 16px;
+      border-top: 1px solid var(--border);
+      display: flex; gap: 8px; align-items: center;
+      font-size: 11px; color: var(--fg-muted);
+    }
+    .concurrent-info {
+      font-size: 11px; color: var(--fg-muted);
+      padding: 4px 0 12px;
+    }
   </style>
 </head>
 <body>
@@ -236,16 +278,13 @@
       </div>
     </div>
 
-    <!-- Run tab -->
+    <!-- Run tab (W14-C:多卡片视图) -->
     <div class="tab-pane" id="tab-run">
       <div class="card">
-        <h2>Selected inbox</h2>
-        <div id="run-inbox" style="font-family: ui-monospace, monospace; color: var(--fg-muted);">
+        <h2>New run</h2>
+        <div id="run-inbox" style="font-family: ui-monospace, monospace; color: var(--fg-muted); margin-bottom: 12px;">
           (请先在 Inbox 页选一个 course)
         </div>
-      </div>
-      <div class="card">
-        <h2>Pipeline options</h2>
         <div class="row wrap gap-lg">
           <label>LLM:
             <select id="opt-llm">
@@ -283,19 +322,12 @@
         </div>
         <div class="row gap-lg" style="margin-top: 12px;">
           <button id="run-btn" disabled>▶ Run pipeline</button>
-          <button id="cancel-btn" class="danger" disabled>■ Cancel</button>
         </div>
+        <div class="concurrent-info" id="concurrent-info"></div>
       </div>
-      <div class="card">
-        <h2>Status (auto-refresh 5s)</h2>
-        <div class="stage-grid" id="stage-grid">
-          <!-- 11 个 stage dot 由 JS 填 -->
-        </div>
-        <div id="run-state" class="empty">(no run yet)</div>
-      </div>
-      <div class="card">
-        <h2>Log tail (50 lines)</h2>
-        <pre id="log-tail">(empty)</pre>
+      <!-- 多任务卡片区 -->
+      <div id="run-cards">
+        <div class="empty">(no runs yet — 点 Run pipeline 开始)</div>
       </div>
     </div>
 
@@ -327,8 +359,8 @@
         <h2>About</h2>
         <p style="font-size: 13px; line-height: 1.6; color: var(--fg-muted);">
           media-to-doc UI 把 media-to-doc Python 流水线包成 Tauri 2 桌面壳。<br>
-          8 commands 对齐 MCP 8 工具(W7=6 + W8=2)。<br>
-          本 session 完成了 T1 ~ T6;T5 完整进度条 + 日志面板 + 多课程并发留 W14-B+2。<br>
+          10 commands(W7=6 + W8=2 + W14-C list_all_runs + read_log)。<br>
+          W14-C:多课程并发(max 3 可配) + completed LRU 100 + cancel 2s 超时。<br>
         </p>
       </div>
       <div class="card">
@@ -365,12 +397,15 @@
     const { invoke } = window.__TAURI__.core;
     const $ = (id) => document.getElementById(id);
 
-    // ───────── 状态 ─────────
+    // ───────── 状态(W14-C:多 run 管理) ─────────
     const state = {
       workspace: '',
       selectedInbox: '',
       selectedWorkDir: '',
-      running: null,        // {work_dir, pid, log_path}
+      // 多个活跃 run 的跟踪:Map<work_dir, {logOffset, pollTimer}>
+      activeRuns: new Map(),
+      // 全局 poll timer
+      globalPollTimer: null,
       stageOrder: ['audio','asr','frames','ocr','asr_correct','chapters','draft','imagegen','render','longdoc','verify'],
     };
 
@@ -393,6 +428,7 @@
         if (el.dataset.tab === 'inbox') refreshCourses();
         if (el.dataset.tab === 'health') { refreshHealth(); refreshRuns(); }
         if (el.dataset.tab === 'output') refreshOutputs();
+        if (el.dataset.tab === 'run') startRunPolling();
       });
     });
 
@@ -412,7 +448,6 @@
         } else {
           $('info-error').textContent = '';
         }
-        // status dot
         const dot = $('status-dot');
         const txt = $('status-text');
         if (info.mtd_version) {
@@ -457,7 +492,7 @@
         it.addEventListener('click', () => {
           state.selectedInbox = it.dataset.path;
           state.selectedWorkDir = it.dataset.path + '\\output';
-          $('run-inbox').textContent = state.selectedInbox;
+          $('run-inbox').textContent = 'Selected: ' + state.selectedInbox;
           $('run-btn').disabled = false;
           el.querySelectorAll('.course-item').forEach((n) => n.classList.remove('selected'));
           it.classList.add('selected');
@@ -467,7 +502,7 @@
     }
     $('refresh-courses').addEventListener('click', refreshCourses);
 
-    // ───────── Run ─────────
+    // ───────── Run tab(多卡片) ─────────
     $('run-btn').addEventListener('click', async () => {
       if (!state.selectedInbox) return;
       const opts = {
@@ -481,79 +516,145 @@
       try {
         const r = await invoke('run_pipeline', opts);
         if (!r.ok) { toast('run_pipeline: ' + r.error, 'error'); return; }
-        state.running = r.data;
-        state.selectedWorkDir = r.data.work_dir;
-        $('cancel-btn').disabled = false;
-        toast(`Pipeline started, pid=${r.data.pid || '?'}`, 'success');
-        pollRun();
+        // 注册新 run 的 log 跟踪
+        state.activeRuns.set(r.data.work_dir, {
+          logPath: r.data.log_path,
+          logOffset: 0,
+        });
+        $('run-inbox').textContent = 'Selected: ' + state.selectedInbox;
+        toast(`Started: ${r.data.work_dir}, pid=${r.data.pid || '?'}`, 'success');
+        // 立即刷新 + 开始轮询
+        await refreshRunCards();
+        startRunPolling();
       } catch (e) {
         toast('run_pipeline 失败: ' + e, 'error');
       }
     });
-    $('cancel-btn').addEventListener('click', async () => {
-      if (!state.running) return;
-      try {
-        const r = await invoke('cancel_run', { workDir: state.running.work_dir });
-        if (!r.ok) { toast('cancel_run: ' + r.error, 'error'); return; }
-        toast(`Cancelled pid=${r.data.pid}`, 'success');
-        $('cancel-btn').disabled = true;
-        state.running = null;
-      } catch (e) {
-        toast('cancel_run 失败: ' + e, 'error');
-      }
-    });
 
-    async function pollRun() {
-      if (!state.running) return;
+    /** 从 list_all_runs 刷新卡片 + log tail */
+    async function refreshRunCards() {
       try {
-        const r = await invoke('check_status', { workDir: state.running.work_dir });
-        renderRunState(r);
-        // tail log
-        await tailLog(state.running.log_path, 50);
+        const r = await invoke('list_all_runs');
+        if (!r.ok) { return; }
+        renderRunCards(r.data);
+        // 并发信息
+        $('concurrent-info').textContent =
+          `slots: ${r.data.active_count}/${r.data.max_concurrent}`;
       } catch (e) {
-        $('run-state').textContent = 'error: ' + e;
+        // silently skip
       }
-      setTimeout(pollRun, 5000);
     }
-    function renderRunState(r) {
-      if (!r.ok) { $('run-state').textContent = r.error; return; }
-      const d = r.data;
-      $('run-state').innerHTML = `
-        <div>course: <code>${d.course || '?'}</code></div>
-        <div>current stage: <code>${d.current_stage || '?'}</code> · complete: ${d.is_complete ? '✅' : '⏳'}</div>
-        <div>started: ${d.started_at || '?'} · updated: ${d.updated_at || '?'}</div>
-      `;
-      // stage grid
-      const grid = $('stage-grid');
-      grid.innerHTML = state.stageOrder.map((s) => {
-        const ss = d.stages && d.stages[s];
-        const status = ss ? ss.status : 'pending';
-        return `<div class="stage-dot ${status}" title="${s}: ${status}">${s.slice(0, 3)}</div>`;
+
+    function renderRunCards(data) {
+      const el = $('run-cards');
+      const runs = data.runs || [];
+      if (runs.length === 0) {
+        el.innerHTML = '<div class="empty">(no runs yet — 点 Run pipeline 开始)</div>';
+        return;
+      }
+      // 给每个 running run 确保有 activeRuns 条目
+      for (const run of runs) {
+        if (run.status === 'running' && !state.activeRuns.has(run.work_dir)) {
+          state.activeRuns.set(run.work_dir, {
+            logPath: run.log_path,
+            logOffset: 0,
+          });
+        }
+      }
+      // 清理已完成的 run
+      for (const [wd] of state.activeRuns) {
+        const found = runs.find(r => r.work_dir === wd && r.status === 'running');
+        if (!found) {
+          state.activeRuns.delete(wd);
+        }
+      }
+      el.innerHTML = runs.map((run) => {
+        const badgeCls = run.status;
+        const badgeLabel = run.status;
+        const started = run.started_at.replace(/^epoch:/, '');
+        const finished = run.finished_at ? run.finished_at.replace(/^epoch:/, '') : '';
+        const timeInfo = finished ? `→ ${finished}` : '…';
+        const showCancel = run.status === 'running';
+        const logId = 'log-' + run.work_dir.replace(/[^a-zA-Z0-9]/g, '_');
+        return `
+          <div class="run-card" data-work-dir="${run.work_dir}">
+            <div class="run-card-header">
+              <span class="status-badge ${badgeCls}">${badgeLabel}</span>
+              <span class="work-dir" title="${run.work_dir}">${run.work_dir}</span>
+              ${showCancel
+                ? `<button class="danger" style="padding:4px 10px;font-size:11px"
+                    onclick="window._cancelRun('${run.work_dir.replace(/'/g, "\\'")}')">■ Cancel</button>`
+                : ''}
+            </div>
+            <div class="run-card-body">
+              ${showCancel
+                ? `<pre id="${logId}" style="font-size:11px;max-height:150px">(waiting for log…)</pre>`
+                : ``}
+            </div>
+            <div class="run-card-footer">
+              <span>inbox: ${run.inbox || '?'}</span>
+              <span>|</span><span>pid: ${run.pid || '?'}</span>
+              <span>|</span><span>${started} ${timeInfo}</span>
+            </div>
+          </div>
+        `;
       }).join('');
+      // 重新绑定 cancel 按钮(通过挂载在 window 上的函数)
+      window._cancelRun = async (workDir) => {
+        try {
+          const r = await invoke('cancel_run', { workDir });
+          if (!r.ok) { toast('cancel: ' + r.error, 'error'); return; }
+          toast(`Cancelled pid=${r.data.pid}`, 'success');
+          state.activeRuns.delete(workDir);
+          await refreshRunCards();
+        } catch (e) {
+          toast('cancel_run 失败: ' + e, 'error');
+        }
+      };
     }
-    let lastLogOffset = 0;
-    async function tailLog(path, n = 200) {
-      if (!path) return;
+
+    /** Per-run log tail */
+    async function tailLogForRun(workDir, logPath, offsetKey) {
+      if (!logPath) return;
+      const tracker = state.activeRuns.get(workDir);
+      if (!tracker) return;
+      const logId = 'log-' + workDir.replace(/[^a-zA-Z0-9]/g, '_');
+      const pre = document.getElementById(logId);
+      if (!pre) return; // card not rendered
       try {
-        const r = await invoke('read_log', { path, offset: lastLogOffset, maxLines: n });
-        if (!r.ok) { $('log-tail').textContent = '(read_log 失败: ' + r.error + ')'; return; }
+        const r = await invoke('read_log', { path: logPath, offset: tracker.logOffset, maxLines: 50 });
+        if (!r.ok) return;
         if (r.data.truncated) {
-          lastLogOffset = 0;
-          $('log-tail').textContent = '';   // truncate → 清空重读
+          tracker.logOffset = 0;
+          pre.textContent = '';
         }
         if (r.data.content) {
-          const pre = $('log-tail');
           pre.textContent += r.data.content;
-          // 限制 pre 长度(避免无限增长)
-          if (pre.textContent.length > 200000) {
-            pre.textContent = pre.textContent.slice(-100000);
+          if (pre.textContent.length > 100000) {
+            pre.textContent = pre.textContent.slice(-50000);
           }
           pre.scrollTop = pre.scrollHeight;
         }
-        lastLogOffset = r.data.new_offset;
+        tracker.logOffset = r.data.new_offset;
       } catch (e) {
-        $('log-tail').textContent = '(read_log 异常: ' + e + ')';
+        // silently skip
       }
+    }
+
+    function startRunPolling() {
+      if (state.globalPollTimer) clearInterval(state.globalPollTimer);
+      state.globalPollTimer = setInterval(async () => {
+        await refreshRunCards();
+        // tail each active run
+        for (const [wd, tracker] of state.activeRuns) {
+          await tailLogForRun(wd, tracker.logPath);
+        }
+        // stop polling if no active runs
+        if (state.activeRuns.size === 0) {
+          clearInterval(state.globalPollTimer);
+          state.globalPollTimer = null;
+        }
+      }, 3000);
     }
 
     // ───────── Output ─────────
@@ -626,7 +727,7 @@
     $('modal-backdrop').addEventListener('click', (e) => {
       if (e.target.id === 'modal-backdrop') hideModal();
     });
-    async function openReadLecture(inbox, version, fmt) {
+    window.openReadLecture = async function(inbox, version, fmt) {
       $('modal-title').textContent = `${version} · ${fmt}`;
       $('modal-source').textContent = '(loading…)';
       $('modal-body').innerHTML = '<div class="empty">loading…</div>';
@@ -655,7 +756,7 @@
       } catch (e) {
         $('modal-body').innerHTML = '<div class="empty">invoke 异常: ' + e + '</div>';
       }
-    }
+    };
 
     // ───────── Boot ─────────
     await loadAppInfo();

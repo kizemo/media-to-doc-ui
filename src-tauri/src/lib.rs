@@ -1,9 +1,9 @@
-//! Tauri 2 desktop shell for media-to-doc (W14-B+ 8 commands 实装)。
+//! Tauri 2 desktop shell for media-to-doc (W14-B+ 8 commands 实装 + W14-C 多课程并发)。
 //!
 //! 职责:
 //! - 提供 desktop window + 后续 system tray
-//! - 通过 8 个 Tauri commands 暴露 media_to_doc Python 能力给前端
-//! - 4 个只读 FS commands + run/cancel 子进程 + get_run_metrics/list_runs(W14-B+)
+//! - 通过 10 个 Tauri commands 暴露 media_to_doc Python 能力给前端
+//! - 4 个只读 FS commands + run/cancel 子进程 + get_run_metrics/list_runs + W14-C list_all_runs
 //!
 //! 参考:
 //! - https://v2.tauri.app/start/
@@ -18,13 +18,13 @@ mod runner;
 mod types;
 
 pub use commands::{
-  cancel_run, check_status, list_courses, list_outputs, list_running, read_lecture, read_log,
-  resume_pipeline, run_pipeline, CancelResult, CheckStatusResult, CourseEntry,
-  ListCoursesResult, ListOutputsResult, ListRunningResult, OutputsGroups, ReadLectureResult,
-  ReadLogResult, StageStatus,
+  cancel_run, check_status, list_all_runs, list_courses, list_outputs, list_running, read_lecture,
+  read_log, resume_pipeline, run_pipeline, CancelResult, CheckStatusResult, CourseEntry,
+  ListAllRunsResult, ListCoursesResult, ListOutputsResult, ListRunningResult, OutputsGroups,
+  ReadLectureResult, ReadLogResult, StageStatus,
 };
 pub use python_bridge::{get_run_metrics, list_runs, probe, ProbeResult};
-pub use runner::{RunPipelineResult, RunRegistry, RunningRun, SpawnSpec};
+pub use runner::{CompletedRun, RunPipelineResult, RunRegistry, RunStatusInfo, RunningRun, SpawnSpec};
 pub use types::{CommandResponse, SUPPORTED_EXTS};
 
 #[derive(Debug, Clone, Serialize)]
@@ -89,6 +89,8 @@ pub fn run() {
       list_runs,
       // W14-B+2 read_log(后端 log tail)
       read_log,
+      // W14-C 多课程并发(list_all_runs)
+      list_all_runs,
     ])
     .run(tauri::generate_context!())
     .expect("error while running media-to-doc UI");
