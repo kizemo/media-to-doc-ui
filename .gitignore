@@ -17,3 +17,6 @@ src-tauri/WixTools/
 
 # Logs
 *.log
+
+# W14-B+ 本机 cargo config(SSL 撞墙 workaround,各机不同)
+.cargo/
