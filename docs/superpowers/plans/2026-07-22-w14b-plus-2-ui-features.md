@@ -72,7 +72,7 @@
   #[test]
   fn read_log_errors_on_missing_file() {
     let r = read_log_impl(
-      std::env::temp_dir().join("definitely_not_here_xyz.log").to_string_lossy().into_owned(),
+      std::env::temp_dir().join("definitely_not_here_xyz_mtd.log").to_string_lossy().into_owned(),
       0, 200,
     );
     assert!(!r.ok, "missing file should err");
@@ -184,6 +184,12 @@ pub fn read_log_impl(
   max_lines: usize,
 ) -> CommandResponse<ReadLogResult> {
   let p = PathBuf::from(&path);
+  if !p.to_string_lossy().ends_with("mtd.log") {
+    return CommandResponse::err(format!(
+      "仅支持读 mtd.log 文件,收到: {}\n(本机信任用户,但拒绝非 log 文件的随机路径)",
+      p.display()
+    ));
+  }
   if !p.is_file() {
     return CommandResponse::err(format!(
       "log 文件不存在: {}\n(请先启动 run_pipeline / resume_pipeline)",
