@@ -394,7 +394,7 @@ pub fn read_lecture_impl(
           &md_p,
           &version,
           &fmt,
-          "output_final",
+          "fallback_md",
           Some("html 版本未生成,fallback 到 md".to_string()),
         );
       }
@@ -766,8 +766,8 @@ mod tests {
     );
     assert!(r.ok);
     let data = r.data.unwrap();
+    assert_eq!(data.source, "fallback_md");
     assert!(data.content.contains("cleaned md"));
-    assert_eq!(data.source, "output_final");
     assert_eq!(data.note.as_deref(), Some("html 版本未生成,fallback 到 md"));
     let _ = fs::remove_dir_all(&inbox);
   }
@@ -955,7 +955,7 @@ mod tests {
     );
     assert!(r.ok, "{:?}", r);
     let d = r.data.unwrap();
-    assert_eq!(d.source, "output_final");
+    assert_eq!(d.source, "fallback_md");
     assert!(d.note.is_some());
     assert!(d.note.unwrap().contains("html") || d.content.contains("cleaned md body"));
     let _ = fs::remove_dir_all(&tmp);
