@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>media-to-doc</title>
+  <style>
+    /* W14-B MVP:vanilla CSS,无框架依赖 */
+    :root {
+      --bg: #1a1a1a;
+      --bg-card: #252525;
+      --fg: #e0e0e0;
+      --fg-muted: #999;
+      --accent: #4a9eff;
+      --border: #333;
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      padding: 0;
+      height: 100%;
+      font-family: -apple-system, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif;
+      background: var(--bg);
+      color: var(--fg);
+    }
+    body {
+      display: flex;
+      flex-direction: column;
+      padding: 24px;
+      gap: 16px;
+    }
+    header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid var(--border);
+    }
+    h1 {
+      margin: 0;
+      font-size: 22px;
+      font-weight: 600;
+    }
+    .badge {
+      padding: 2px 8px;
+      border-radius: 4px;
+      background: var(--accent);
+      color: #fff;
+      font-size: 12px;
+    }
+    .card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 16px;
+    }
+    .card h2 {
+      margin: 0 0 8px;
+      font-size: 14px;
+      color: var(--fg-muted);
+      font-weight: 500;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .kv { display: grid; grid-template-columns: 120px 1fr; gap: 4px 12px; font-size: 13px; }
+    .kv dt { color: var(--fg-muted); }
+    .kv dd { margin: 0; font-family: ui-monospace, "Cascadia Code", monospace; }
+    button {
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      padding: 8px 16px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 14px;
+    }
+    button:hover { filter: brightness(1.1); }
+    input {
+      background: var(--bg);
+      color: var(--fg);
+      border: 1px solid var(--border);
+      padding: 8px 12px;
+      border-radius: 4px;
+      font-size: 14px;
+      width: 100%;
+    }
+    .row { display: flex; gap: 8px; align-items: center; }
+    pre {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 12px;
+      overflow-x: auto;
+      font-size: 12px;
+      margin: 0;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>media-to-doc</h1>
+    <span class="badge">v0.1.0 W14-B</span>
+  </header>
+
+  <div class="card">
+    <h2>App Info</h2>
+    <dl class="kv" id="app-info">
+      <dt>Name</dt><dd id="info-name">…</dd>
+      <dt>UI version</dt><dd id="info-version">…</dd>
+      <dt>mtd version</dt><dd id="info-mtd">…</dd>
+      <dt>Python API</dt><dd id="info-pyapi">…</dd>
+      <dt>MCP server</dt><dd id="info-mcp">…</dd>
+    </dl>
+  </div>
+
+  <div class="card">
+    <h2>IPC smoke test</h2>
+    <div class="row">
+      <input id="ping-input" placeholder="send a message" value="hello">
+      <button id="ping-btn">PING</button>
+    </div>
+    <pre id="ping-result"></pre>
+  </div>
+
+  <div class="card">
+    <h2>Pipeline (W14-B+)</h2>
+    <p style="color: var(--fg-muted); font-size: 13px; margin: 0;">
+      下个 milestone 实装:
+      <br>• Run pipeline(选 inbox 目录 → 调 <code>uv run mtd run</code>)
+      <br>• Real-time progress(轮询 <code>state.json</code>)
+      <br>• Output viewer(打开 <code>output_final/&lt;video&gt;.html</code>)
+      <br>• LE health(<code>get_run_metrics</code> / <code>list_runs</code>)
+    </p>
+  </div>
+
+  <script type="module">
+    // W14-B MVP:直接 invoke,无打包,vanilla ES module
+    const { invoke } = window.__TAURI__.core;
+
+    const $ = (id) => document.getElementById(id);
+
+    async function loadAppInfo() {
+      try {
+        const info = await invoke('app_info');
+        $('info-name').textContent = info.name;
+        $('info-version').textContent = info.version;
+        $('info-mtd').textContent = info.mtd_version;
+        $('info-pyapi').textContent = info.python_api_available ? 'available' : 'not wired';
+        $('info-mcp').textContent = info.mcp_server_available ? 'available' : 'not wired';
+      } catch (e) {
+        $('app-info').innerHTML = `<dt>error</dt><dd>${e}</dd>`;
+      }
+    }
+
+    async function ping() {
+      const msg = $('ping-input').value;
+      try {
+        const reply = await invoke('ping', { message: msg });
+        $('ping-result').textContent = reply;
+      } catch (e) {
+        $('ping-result').textContent = `error: ${e}`;
+      }
+    }
+
+    $('ping-btn').addEventListener('click', ping);
+    $('ping-input').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') ping();
+    });
+
+    loadAppInfo();
+  </script>
+</body>
+</html>

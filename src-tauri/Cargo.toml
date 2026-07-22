@@ -1,0 +1,31 @@
+[package]
+name = "media-to-doc-ui"
+version = "0.1.0"
+description = "Desktop UI for media-to-doc — turn local videos into AI-illustrated Markdown + HTML lectures"
+authors = ["Duanyi"]
+edition = "2021"
+rust-version = "1.77"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+name = "media_to_doc_ui_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# W14-B 启动:W14-B+ 实装 commands 时再加 tokio / subprocess / reqwest
+# 当前 MVP:仅 hello world 验证 Tauri 链路
+
+[profile.release]
+# panic = "abort" # Strip debug info for smaller binaries
+codegen-units = 1
+lto = true
+opt-level = "s"
+strip = true

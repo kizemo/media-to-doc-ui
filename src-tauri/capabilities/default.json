@@ -1,0 +1,9 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Default capability for the desktop app — W14-B 启动最小权限集",
+  "windows": ["main"],
+  "permissions": [
+    "core:default"
+  ]
+}
