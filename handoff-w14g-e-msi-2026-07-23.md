@@ -22,6 +22,8 @@
 
 ## 2. 双产物路径
 
+### 2.1 build 产物(`target/release/bundle/`)
+
 ```
 F:\soft\00selfmade\media-to-doc-ui\src-tauri\target\release\bundle\
 ├── nsis/
@@ -34,6 +36,18 @@ F:\soft\00selfmade\media-to-doc-ui\src-tauri\target\release\bundle\
     └── media-to-doc_1.4.0_x64_zh-CN.msi      ← NEW (2,519,040 bytes / ~2.4MB)
                                                   WiX 3.14 candle + light 编译产物
 ```
+
+### 2.2 分发产物(`release/`,W14-G E 起 gitignored)
+
+```
+F:\soft\00selfmade\media-to-doc-ui\release\
+├── media-to-doc_1.4.0_x64-setup.exe          (1,631,898 bytes / ~1.55MB)
+│   SHA256: 774D069F65BA9F94EF5862AC4D9E563F2EAD7D7D516A5EA89A5CF4D41AE4C443
+└── media-to-doc_1.4.0_x64_zh-CN.msi          (2,519,040 bytes / ~2.40MB)
+    SHA256: D14FD421252528987C1816915AB62E17A616111B9C8218120118F56D5B432907
+```
+
+`release/` 在 `.gitignore`,commit `44f80d9`(本会话补 commit),只放本地分发包,不分发走 gh release。
 
 **命名变化**:从 `targets: "all"` 起,Tauri 2.x bundler 用内置命名(`_x64-setup.exe` / `_x64_zh-CN.msi`),不再是 v1.4.0 commit `8fd49dc` 的 `media-to-doc-1.4.0-setup.exe`(W14-C B `installer.nsi` OutFile 路径)。
 **实际行为**:Tauri 2.x 默认 NSIS 模板不再用我们的 `installer.nsi`(除非显式 `windows.nsis.template`),意味着:
@@ -194,7 +208,33 @@ test result: ok. 43 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
 
 ## 8. 下次会话候选(W14-G+)
 
-### A. 子仓 v1.4.0 → v1.4.1(Minor bump + gh release 上传 .msi)
+### A. D 盘安装路径(2026-07-23 用户追加)
+
+**用户问题**:桌面端安装在 D 盘是否影响功能?
+
+**结论**:**不影响**。功能影响分析:
+- ✅ Tauri WebView2 host:D 盘路径与 WebView2 Runtime(用户级装)无依赖
+- ✅ 子进程 mtd/uv:env var `MEDIA_TO_DOC_PROJECT` 不依赖绝对安装路径
+- ✅ inbox/output 路径:用户在 GUI 自选,与安装路径无关
+- ✅ 注册表卸载入口:Windows 按 ProductCode 定位,与 InstallDir 无关
+- ✅ Start Menu/Desktop 快捷方式:`.lnk` 指向 `$INSTDIR\media-to-doc-ui.exe`,自动跟随
+- ⚠️ WebView2 user data:%LOCALAPPDATA%\com.duanyi.mediatodoc(基于 identifier,与 InstallDir 无关,但 D 盘用户首次开需等 WebView2 cache 建立)
+- ⚠️ 卸载残留:NSIS Uninst.exe 清 InstallDir,但 D 盘如被占用需手动清
+
+**用户如何装到 D 盘**(无需改 installer):
+
+| 方法 | 命令 |
+|---|---|
+| GUI 装(可选目录) | 双击 `.exe`,安装向导 "Installation Directory" 改成 `D:\MediaToDoc\` |
+| NSIS 静默 | `media-to-doc_1.4.0_x64-setup.exe /S /D=D:\MediaToDoc` |
+| NSIS 静默 + 日志 | `media-to-doc_1.4.0_x64-setup.exe /S /D=D:\MediaToDoc /LOG=D:\install.log` |
+| MSI 静默 | `msiexec /i media-to-doc_1.4.0_x64_zh-CN.msi INSTALLDIR="D:\MediaToDoc" /qn /l*v D:\install.log` |
+| MSI GUI | 双击 `.msi`,向导 "Destination Folder" 改成 `D:\MediaToDoc\` |
+
+**决策**:**不改 installer 默认值**(保持 `C:\Program Files\MediaToDoc\` 默认;用户 D 盘在 GUI/命令行选)。
+**留作可选(W14-G+ B)**:若用户希望"开箱即用 D 盘",改 `installer.nsi` 的 `InstallDir "$PROGRAMFILES\MediaToDoc"` → `InstallDir "D:\MediaToDoc"`,WiX MSI 加 `<Property Id="WIXUI_INSTALLDIR" Value="D:\MediaToDoc" />`。
+
+### B. 子仓 v1.4.0 → v1.4.1(Minor bump + gh release 上传 .msi)
 
 - bump `src-tauri/Cargo.toml` + `src-tauri/tauri.conf.json` + `installer.nsi` + `README.md` 到 1.4.1
 - 双产物 SHA256 计算 + 写进 release notes
