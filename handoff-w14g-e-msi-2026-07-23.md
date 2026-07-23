@@ -15,6 +15,7 @@
 | 3 | `cargo tauri build` 出 NSIS + MSI 双产物 | ✅ 见 §2 |
 | 4 | `cargo test` 43/43 不变 | ✅ |
 | 5 | sandbox-verify NSIS 跑新产物 | ❌ 撞新墙:Win Sandbox feature 未启,见 §5.1 |
+| 5b | W14-G+ 用户决策:NSIS only + D 盘默认 + release/ 只放 NSIS | ✅ 撞墙修复后跑通,见 §4.8 |
 | 6 | spec / plan / handoff 落地 | ✅ |
 | 7 | git commit | ✅ 见 §3 |
 
@@ -41,13 +42,14 @@ F:\soft\00selfmade\media-to-doc-ui\src-tauri\target\release\bundle\
 
 ```
 F:\soft\00selfmade\media-to-doc-ui\release\
-├── media-to-doc_1.4.0_x64-setup.exe          (1,631,898 bytes / ~1.55MB)
-│   SHA256: 774D069F65BA9F94EF5862AC4D9E563F2EAD7D7D516A5EA89A5CF4D41AE4C443
-└── media-to-doc_1.4.0_x64_zh-CN.msi          (2,519,040 bytes / ~2.40MB)
-    SHA256: D14FD421252528987C1816915AB62E17A616111B9C8218120118F56D5B432907
+└── media-to-doc_1.4.0_x64-setup.exe          (1,576,687 bytes / ~1.55MB,W14-G+ 重 build)
+    SHA256: D0AA450E579BC7DB38B24ED9AB56C411D274ED4A59F031652B164CB6754765C2
+    InstallDir 默认: D:\Program Files\MediaToDoc
 ```
 
-`release/` 在 `.gitignore`,commit `44f80d9`(本会话补 commit),只放本地分发包,不分发走 gh release。
+**W14-G+ 改动**:NSIS installer 改用 `installer.nsi` 模板,默认安装到 `D:\Program Files\MediaToDoc`。MSI 产物不再 build 不再 cp(用户决策 debug 不输出 msi)。
+
+`release/` 在 `.gitignore`,只放本地分发包。MSI 如需重新打包,改 `tauri.conf.json` `bundle.targets: "all"` 重 build 即可(见 §4.8)。
 
 **命名变化**:从 `targets: "all"` 起,Tauri 2.x bundler 用内置命名(`_x64-setup.exe` / `_x64_zh-CN.msi`),不再是 v1.4.0 commit `8fd49dc` 的 `media-to-doc-1.4.0-setup.exe`(W14-C B `installer.nsi` OutFile 路径)。
 **实际行为**:Tauri 2.x 默认 NSIS 模板不再用我们的 `installer.nsi`(除非显式 `windows.nsis.template`),意味着:
@@ -66,11 +68,13 @@ F:\soft\00selfmade\media-to-doc-ui\release\
 
 | 文件 | 改动 | commit |
 |---|---|---|
-| `src-tauri/tauri.conf.json` | `targets: "all"` + `windows.wix` + `icon` 加 ico | (本会话 commit 1) |
-| `docs/superpowers/specs/2026-07-23-w14g-e-wix-msi-design.md` | spec 文档(spec §6.4 撞墙记录更新) | (本会话 commit 1) |
-| `docs/superpowers/plans/2026-07-23-w14g-e-wix-msi.md` | 实施 plan | (本会话 commit 1) |
-| `handoff-w14g-e-msi-2026-07-23.md` | 本 handoff | (本会话 commit 2) |
-| `handoff-w14f-d-e2e-verify-2026-07-23.md` | 上一会话继承(本会话先 commit 掉) | (本会话 commit 0) |
+| `src-tauri/tauri.conf.json` | W14-G E:`targets: "all"` + `windows.wix` + `icon` 加 ico;<br>W14-G+:`targets: "nsis"` + `windows.nsis.template` | (commit `08c3d59`)<br>(commit `9e2b080` WIP) |
+| `src-tauri/nsis/installer.nsi` | W14-G+:InstallDir D 盘 + OutFile `nsis-output.exe` + 删 MUI_PAGE_LICENSE + File 路径 | (commit `9e2b080` WIP) |
+| `docs/superpowers/specs/2026-07-23-w14g-e-wix-msi-design.md` | spec 文档 | (commit `08c3d59`) |
+| `docs/superpowers/plans/2026-07-23-w14g-e-wix-msi.md` | 实施 plan | (commit `08c3d59`) |
+| `.gitignore` | + `release/` | (commit `8a7a970`) |
+| `handoff-w14g-e-msi-2026-07-23.md` | 本 handoff(累计 §4.8 W14-G+ 撞墙记录 + §2.2 W14-G+ 分发产物更新) | (commit `f677d5b` + `a37220d` + 当前) |
+| `handoff-w14f-d-e2e-verify-2026-07-23.md` | 上一会话继承(本会话先 commit 掉) | (commit `1eea18a`) |
 
 **预期 commit hashes**:
 - `W14-F D`:W14-F D handoff 归档
@@ -146,6 +150,44 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "F:\soft\00selfmade\sandbox-
 ```
 **遗留**:`C:\Users\Duanyi\sandbox-artifacts\mtd\` 目录仍未建(脚本提前抛错);用户跑前可手动 `mkdir -p`。
 
+### 4.8 Tauri bundler "系统找不到指定的文件" (W14-G+ 用户决策撞墙,本节修复)
+
+**症状**(W14-G+):加 `bundle.windows.nsis.template: "./nsis/installer.nsi"` 让用户 installer.nsi 接管后,`cargo tauri build` 报:
+```
+Running makensis to produce ...\target\release\bundle\nsis\media-to-doc_1.4.0_x64-setup.exe
+   Error failed to bundle project: `系统找不到指定的文件。 (os error 2)`
+```
+**根因**(查 Tauri 2.11.4 `crates/tauri-bundler/src/bundle/windows/nsis/mod.rs`):
+1. Tauri 调 makensis 时设 `.current_dir(output_path)`,其中 `output_path = settings.project_out_directory().join("nsis").join(arch)` = `target/release/nsis/x64/`
+2. Tauri 期望 makensis 产物叫 **`nsis-output.exe`**(out_file 固定常量),写在 `output_path` 即 `target/release/nsis/x64/nsis-output.exe`
+3. Tauri 然后 `fs::rename(nsis_output_path, &nsis_installer_path)`,rename 到 `bundle/nsis/<product>_<version>_<arch>-setup.exe`
+4. **installer.nsi 的 OutFile 必须写 `nsis-output.exe`**(不能写自己想要的命名)
+5. Tauri 自动 rename 产物到正确命名,所以 installer.nsi 不需要管最终命名
+
+**为什么 Tauri log 显示 `Running makensis to produce ...\bundle\nsis\media-to-doc_1.4.0_x64-setup.exe`**:
+- log 显示的是 Tauri **期望**最终路径(mv 后),不是 makensis 实际产物路径(临时 `nsis-output.exe`)
+- 这造成视觉混淆
+
+**修复**(本会话 commit `9e2b080`):
+1. `installer.nsi` 的 `OutFile` 改 `"nsis-output.exe"`(Tauri 期望名)
+2. `installer.nsi` 的 `File` 命令路径改 `"..\..\media-to-doc-ui.exe"`(从 `target/release/nsis/x64/` 上 2 层到 `target/release/`)
+3. 删 `MUI_PAGE_LICENSE "LICENSE.txt"`(LICENSE.txt 在 `src-tauri/nsis/`,不在 makensis 新 working dir `target/release/nsis/x64/`)
+4. `tauri.conf.json` 加 `bundle.windows.nsis.template: "./nsis/installer.nsi"`
+
+**build 验证**:
+```
+$ cargo tauri build
+Finished `release` profile [optimized] target(s) in 0.89s
+   Built application at: ...\target\release\media-to-doc-ui.exe
+    Info Target: x64
+Running makensis to produce ...\target\release\bundle\nsis\media-to-doc_1.4.0_x64-setup.exe
+Finished 1 bundle at:
+    F:\soft\00selfmade\media-to-doc-ui\src-tauri\target\release\bundle\nsis\media-to-doc_1.4.0_x64-setup.exe
+```
+产物 `media-to-doc_1.4.0_x64-setup.exe` 落地,1,576,687 bytes。
+
+**反思**:W14-G E 时用 `targets: "all"`(内置 NSIS 模板)没撞这堵墙,是因为 Tauri 默认模板的 OutFile 已经是 `nsis-output.exe`,我们看不到。用户接管 template 后,OutFile 必须遵循 Tauri 期望名约定。
+
 ---
 
 ## 5. sandbox-verify 状态
@@ -206,7 +248,59 @@ test result: ok. 43 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
 
 ---
 
-## 8. 下次会话候选(W14-G+)
+## 8. W14-G+ 用户决策收尾(D 盘默认 + NSIS only + release/ 只放 NSIS)
+
+**日期**:2026-07-23 续接
+**用户消息**:
+> 同意A。同时修改默认路径使用 D:\Program Files\MediaToDoc。请在release文件夹,输出NSIS安装文件,在调试过程,不用输出mis安装包。
+
+**本节执行**(commit `9e2b080`):
+1. ✅ `tauri.conf.json` `bundle.targets` 改 `"nsis"`(debug 不产 MSI)
+2. ✅ `tauri.conf.json` `bundle.windows.nsis.template: "./nsis/installer.nsi"`(用户 installer.nsi 接管)
+3. ✅ `installer.nsi` `InstallDir "D:\Program Files\MediaToDoc"`(默认 D 盘)
+4. ✅ `installer.nsi` `OutFile "nsis-output.exe"`(Tauri bundler 期望名)
+5. ✅ `installer.nsi` File 路径 `..\..\media-to-doc-ui.exe`(从 `target/release/nsis/x64/` 上 2 层)
+6. ✅ `installer.nsi` 删 `MUI_PAGE_LICENSE`(LICENSE.txt 不在 makensis working dir)
+7. ✅ `cargo tauri build` 跑通,产物 `target/release/bundle/nsis/media-to-doc_1.4.0_x64-setup.exe` 1,576,687 bytes
+8. ✅ `release/` 删 msi 文件 + cp 新 NSIS(覆盖旧 v1.4.0 _x64-setup.exe)
+9. ✅ SHA256: `D0AA450E579BC7DB38B24ED9AB56C411D274ED4A59F031652B164CB6754765C2`
+
+**撞墙**:Tauri bundler "系统找不到指定的文件" 撞 3 次后通过源码溯源修复。详见 §4.8。
+
+**CLAUDE.md §5.6 状态**:本 commit `9e2b080` 改 `installer.nsi` + `tauri.conf.json`,需要 **2 轮 reviewer**(本会话已 commit,等下一会话 reviewer 二次 review)。如有 reviewer 拒绝需回滚。
+
+**用户验收步骤**(桌面手动,不依赖 sandbox):
+```bash
+# 1. 装(默认 D 盘)
+双击 F:\soft\00selfmade\media-to-doc-ui\release\media-to-doc_1.4.0_x64-setup.exe
+→ 安装向导默认目录: D:\Program Files\MediaToDoc\(可改)
+→ Next → Install → Finish
+
+# 2. 启动 + 跑
+桌面双击 media-to-doc 快捷方式 → 主窗口弹出
+
+# 3. 卸载
+控制面板 → 程序和功能 → media-to-doc → 卸载 → 确认
+```
+
+---
+
+## 9. 下次会话候选(W14-G+ 后续)
+
+(原 §8 候选项不变;本节新增 W14-G+ 完成后的候选)
+
+### W14-G+ 后续
+
+| 候选 | 内容 | 依赖 |
+|---|---|---|
+| Reviewer 二次 review `commit 9e2b080` | CLAUDE.md §5.6 必做 | 本会话 commit |
+| 用户桌面手动装新 NSIS | 验证 D 盘默认安装行为 | 用户执行 |
+| GitHub Release v1.4.1 上传新 NSIS | 替换 v1.4.0 的 NSIS asset | reviewer pass |
+| 恢复 W14-G E MSI 打包能力(可选) | 改 `targets: "all"` 重 build + cp | 未来需要时 |
+
+### 下次会话第一句
+
+> 承接 `handoff-w14g-e-msi-2026-07-23.md`,W14-G E + W14-G+ 完成(NSIS only debug + D 盘默认 + release/ 只放 NSIS 1.55MB,SHA256 `D0AA45...`),`commit 9e2b080` 待 reviewer 二次 review(改 `installer.nsi` + `tauri.conf.json`,CLAUDE.md §5.6)。待用户在桌面手动验收 D 盘默认安装 + reviewer pass 后 bump v1.4.1。
 
 ### A. D 盘安装路径(2026-07-23 用户追加)
 
@@ -277,6 +371,6 @@ test result: ok. 43 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
 
 ---
 
-## 9. 下次会话第一句
+## 10. 下次会话第一句
 
-> 承接 `handoff-w14g-e-msi-2026-07-23.md`,W14-G E 完成(`targets: "all"` + WiX 3.14 双产物:NSIS `media-to-doc_1.4.0_x64-setup.exe` 1.6MB + MSI `media-to-doc_1.4.0_x64_zh-CN.msi` 2.5MB,43/43 测试过,2 个撞墙已记录)。sandbox-verify NSIS 在跑后台 `bhx19vrm4`,等用户在桌面确认 verify.log。等用户拍板是否 bump v1.4.1 + gh release 上传双产物。
+> 承接 `handoff-w14g-e-msi-2026-07-23.md`,W14-G E + W14-G+ 完成(NSIS only debug + D 盘默认 + release/ 只放 NSIS 1.55MB,SHA256 `D0AA45...`),`commit 9e2b080` 待 reviewer 二次 review(改 `installer.nsi` + `tauri.conf.json`,CLAUDE.md §5.6)。待用户在桌面手动验收 D 盘默认安装 + reviewer pass 后 bump v1.4.1。
