@@ -1,5 +1,10 @@
-; media-to-doc NSIS installer (W14-C B + v1.4.0 bump)
+; media-to-doc NSIS installer (W14-C B + v1.4.0 bump + W14-G+ D 盘默认)
 ; Uses system NSIS 3.12, bypasses Tauri bundler GitHub TLS issue
+; W14-G+: Tauri `windows.nsis.template` 字段把本文件拷到 target/release/nsis/x64/installer.nsi,
+;         makensis working dir 改为 target/release/nsis/x64/(上 2 层到 target/release/);
+;         OutFile 必须为 "nsis-output.exe"(Tauri 期望的固定名,会 fs::rename 到 bundle/nsis/<product>_<version>_<arch>-setup.exe);
+;         File 路径使用 ..\..\ 相对路径;
+;         MUI_PAGE_LICENSE 删除(原 LICENSE.txt 不在新 working dir,无 license 页)
 
 !define PRODUCT_NAME "media-to-doc"
 !define PRODUCT_VERSION "1.4.0"
@@ -13,13 +18,12 @@ SetCompressor lzma
 !include "MUI2.nsh"
 
 Name "${PRODUCT_NAME} ${PRODUCT_VERSION}"
-OutFile "..\target\release\bundle\nsis\media-to-doc-1.4.0-setup.exe"
-InstallDir "$PROGRAMFILES\MediaToDoc"
+OutFile "nsis-output.exe"
+InstallDir "D:\Program Files\MediaToDoc"
 InstallDirRegKey HKLM "${PRODUCT_DIR_REGKEY}" ""
 RequestExecutionLevel admin
 
 !insertmacro MUI_PAGE_WELCOME
-!insertmacro MUI_PAGE_LICENSE "LICENSE.txt"
 !insertmacro MUI_PAGE_DIRECTORY
 !insertmacro MUI_PAGE_INSTFILES
 !insertmacro MUI_PAGE_FINISH
@@ -31,7 +35,7 @@ RequestExecutionLevel admin
 
 Section "Install"
   SetOutPath "$INSTDIR"
-  File "..\target\release\media-to-doc-ui.exe"
+  File "..\..\media-to-doc-ui.exe"
   CreateDirectory "$INSTDIR"
 
   WriteRegStr HKLM "${PRODUCT_DIR_REGKEY}" "" "$INSTDIR\media-to-doc-ui.exe"
