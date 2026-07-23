@@ -168,6 +168,15 @@
     .stage-dot.completed { background: rgba(76,175,80,0.3); color: var(--green); border-color: var(--green); }
     .stage-dot.in_progress { background: rgba(255,183,77,0.3); color: var(--yellow); border-color: var(--yellow); }
     .stage-dot.failed { background: rgba(239,83,80,0.3); color: var(--red); border-color: var(--red); }
+    .stage-dot.pending { background: rgba(255,255,255,0.05); color: var(--fg-muted); }
+    .stage-dot.skipped { background: rgba(153,153,153,0.2); color: var(--fg-muted); border-style: dashed; }
+    /* W14-E C: stages 已跑 X / 11 计数 */
+    .stage-summary {
+      font-size: 11px; color: var(--fg-muted);
+      margin-bottom: 6px;
+    }
+    .stage-summary .done { color: var(--green); font-weight: 500; }
+    .stage-summary .current { color: var(--yellow); font-weight: 500; }
     .modal-backdrop {
       position: fixed; inset: 0;
       background: rgba(0,0,0,0.7);
@@ -407,6 +416,10 @@
       // 全局 poll timer
       globalPollTimer: null,
       stageOrder: ['audio','asr','frames','ocr','asr_correct','chapters','draft','imagegen','render','longdoc','verify'],
+      // W14-E C:check_status 缓存 + 完成跳 tab 追踪
+      runStages: new Map(),       // work_dir -> { current_stage, stages, is_complete, updated_at }
+      runPrevStatus: new Map(),   // work_dir -> 上次渲染时的 status(running→done 检测)
+      jumpDisabled: new Set(),    // work_dir 已跳过一次 Output tab,不再跳
     };
 
     // ───────── Toast ─────────
@@ -576,6 +589,11 @@
         const timeInfo = finished ? `→ ${finished}` : '…';
         const showCancel = run.status === 'running';
         const logId = 'log-' + run.work_dir.replace(/[^a-zA-Z0-9]/g, '_');
+        const stageId = 'stage-' + run.work_dir.replace(/[^a-zA-Z0-9]/g, '_');
+        // W14-E C:running run 渲染 stage-grid + summary
+        const stagesBlock = run.status === 'running'
+          ? `<div id="${stageId}">${renderStagesHtml(run.work_dir)}</div>`
+          : `<div class="empty">(${run.status})</div>`;
         return `
           <div class="run-card" data-work-dir="${run.work_dir}">
             <div class="run-card-header">
@@ -587,6 +605,7 @@
                 : ''}
             </div>
             <div class="run-card-body">
+              ${stagesBlock}
               ${showCancel
                 ? `<pre id="${logId}" style="font-size:11px;max-height:150px">(waiting for log…)</pre>`
                 : ``}
@@ -599,6 +618,10 @@
           </div>
         `;
       }).join('');
+      // W14-E C:running→done 检测跳 Output tab
+      for (const run of runs) {
+        maybeJumpToOutput(run.work_dir, run.status);
+      }
       // 重新绑定 cancel 按钮(通过挂载在 window 上的函数)
       window._cancelRun = async (workDir) => {
         try {
@@ -611,6 +634,74 @@
           toast('cancel_run 失败: ' + e, 'error');
         }
       };
+    }
+
+    // W14-E C:Stage 进度条(从 state.runStages 缓存读)
+    function renderStagesHtml(workDir) {
+      const cached = state.runStages.get(workDir);
+      if (!cached) {
+        // 第一次轮询前:全部 pending
+        const dots = state.stageOrder.map((s) => {
+          const letters = { audio:'au', asr:'as', frames:'fr', ocr:'oc', asr_correct:'ac', chapters:'ch', draft:'dr', imagegen:'ig', render:'rn', longdoc:'ld', verify:'vy' };
+          return `<div class="stage-dot pending" title="${s} · pending">${letters[s] || s.slice(0,2)}</div>`;
+        }).join('');
+        return `<div class="stage-summary">stages: <span class="done">0/11</span> · current: <span class="current">(loading…)</span></div><div class="stage-grid">${dots}</div>`;
+      }
+      const { stages, current_stage, is_complete } = cached;
+      const done = Object.values(stages).filter((s) => s.status === 'completed').length;
+      const dots = state.stageOrder.map((s) => {
+        const ss = stages[s] || { status: 'pending' };
+        const letters = { audio:'au', asr:'as', frames:'fr', ocr:'oc', asr_correct:'ac', chapters:'ch', draft:'dr', imagegen:'ig', render:'rn', longdoc:'ld', verify:'vy' };
+        const lbl = letters[s] || s.slice(0,2);
+        return `<div class="stage-dot ${ss.status}" title="${s} · ${ss.status}${ss.error ? ': ' + ss.error : ''}">${lbl}</div>`;
+      }).join('');
+      const cur = current_stage || (is_complete ? '(complete)' : '(loading…)');
+      return `<div class="stage-summary">stages: <span class="done">${done}/${state.stageOrder.length}</span> · current: <span class="current">${cur}</span></div><div class="stage-grid">${dots}</div>`;
+    }
+
+    /** W14-E C:poll check_status 缓存到 state.runStages */
+    async function pollStageForRun(workDir) {
+      try {
+        const r = await invoke('check_status', { workDir });
+        if (!r.ok) return;
+        state.runStages.set(workDir, {
+          current_stage: r.data.current_stage || '',
+          stages: r.data.stages || {},
+          is_complete: r.data.is_complete || false,
+          updated_at: r.data.updated_at || '',
+        });
+      } catch (e) {
+        // silently skip(子进程刚 spawn 或 state.json 还没写)
+      }
+    }
+
+    /** W14-E C:running → done 时,自动跳 Output tab(只跳一次) */
+    function maybeJumpToOutput(workDir, newStatus) {
+      const prev = state.runPrevStatus.get(workDir);
+      if (prev === 'running' && ['completed','cancelled','failed'].includes(newStatus)) {
+        if (state.jumpDisabled.has(workDir)) return;
+        state.jumpDisabled.add(workDir);
+        const wasOnRunTab = document.querySelector('.nav-item.active')?.dataset.tab === 'run';
+        if (wasOnRunTab) {
+          const verb = newStatus === 'completed' ? 'completed' : newStatus;
+          toast(`Run ${verb} — 跳到 Output 看产物`, newStatus === 'completed' ? 'success' : 'error', 5000);
+          setTimeout(() => switchTab('output'), 800);
+        }
+      }
+      state.runPrevStatus.set(workDir, newStatus);
+    }
+
+    /** W14-E C:Tab switch helper(原来 nav-item click 已做,但 onRunTab 检测需要共享)*/
+    function switchTab(tabName) {
+      document.querySelectorAll('.nav-item').forEach((n) => {
+        n.classList.toggle('active', n.dataset.tab === tabName);
+      });
+      document.querySelectorAll('.tab-pane').forEach((p) => {
+        p.classList.toggle('active', p.id === `tab-${tabName}`);
+      });
+      // 触发表单刷新
+      if (tabName === 'health') { refreshHealth(); refreshRuns(); }
+      if (tabName === 'output') refreshOutputs();
     }
 
     /** Per-run log tail */
@@ -648,6 +739,7 @@
         // tail each active run
         for (const [wd, tracker] of state.activeRuns) {
           await tailLogForRun(wd, tracker.logPath);
+          await pollStageForRun(wd);  // W14-E C:check_status 缓存 stages
         }
         // stop polling if no active runs
         if (state.activeRuns.size === 0) {
