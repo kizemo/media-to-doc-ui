@@ -86,20 +86,22 @@
 | # | 名称 | base_url | 默认 model | 协议 | 认证变量 | env var |
 |---|---|---|---|---|---|---|
 | 1 | Anthropic | https://api.anthropic.com | claude-sonnet-4-5 | Anthropic SDK | `ANTHROPIC_AUTH_TOKEN` | `ANTHROPIC_API_KEY` + `ANTHROPIC_BASE_URL` |
-| 2 | OpenAI | https://api.openai.com/v1 | gpt-4o | OpenAI Compat | Bearer Token | `OPENAI_API_KEY` + `OPENAI_BASE_URL` |
-| 3 | Ollama | http://localhost:11434 | llama3.1 | Ollama native | (no auth) | `OLLAMA_HOST` + `OLLAMA_MODEL` |
+| 2 | OpenAI | https://api.openai.com/v1 | gpt-4o | OpenAI Compat | Bearer Token | `OPENAI_API_KEY` + `OPENAI_BASE_URL` + `OPENAI_MODEL`(可选) |
+| 3 | Ollama | http://localhost:11434 | llama3.1 | Ollama native | (no auth) | `OLLAMA_HOST` + `OLLAMA_MODEL`(无 key) |
 | 4 | LM Studio | http://localhost:1234/v1 | loaded-model | OpenAI Compat | Bearer Token | `OPENAI_API_KEY` + `OPENAI_BASE_URL` + `OPENAI_MODEL` |
-| 5 | DeepSeek | https://api.deepseek.com | deepseek-chat | OpenAI Compat | Bearer Token | `OPENAI_API_KEY` + `OPENAI_BASE_URL` |
-| 6 | Zhipu GLM | https://open.bigmodel.cn/api/paas/v4 | glm-4-plus | OpenAI Compat | Bearer Token | `OPENAI_API_KEY` + `OPENAI_BASE_URL` |
-| 7 | Kimi | https://api.moonshot.cn/v1 | moonshot-v1-128k | OpenAI Compat | Bearer Token | `OPENAI_API_KEY` + `OPENAI_BASE_URL` |
-| 8 | MiniMax | https://api.MiniMax.chat/v1 | MiniMax-Text-01 | OpenAI Compat | Bearer Token | `OPENAI_API_KEY` + `OPENAI_BASE_URL` |
-| 9 | 接口 AI | https://api.api2d.net/v1 | gpt-4o-mini | OpenAI Compat | Bearer Token | `OPENAI_API_KEY` + `OPENAI_BASE_URL` |
-| 10 | 胜算云 | https://api.shengsuanyun.com/v1 | gpt-4o-mini | OpenAI Compat | Bearer Token | `OPENAI_API_KEY` + `OPENAI_BASE_URL` |
-| 11 | TeamoRouter | https://api.teamorouter.com/v1 | claude-3-5-sonnet | OpenAI Compat | Bearer Token | `OPENAI_API_KEY` + `OPENAI_BASE_URL` |
-| 12 | Custom | (空,用户填) | (空,用户填) | OpenAI Compat | Bearer Token | `OPENAI_API_KEY` + `OPENAI_BASE_URL` |
+| 5 | DeepSeek | https://api.deepseek.com | deepseek-chat | OpenAI Compat | Bearer Token | `OPENAI_API_KEY` + `OPENAI_BASE_URL` + `OPENAI_MODEL`(可选) |
+| 6 | Zhipu GLM | https://open.bigmodel.cn/api/paas/v4 | glm-4-plus | OpenAI Compat | Bearer Token | `OPENAI_API_KEY` + `OPENAI_BASE_URL` + `OPENAI_MODEL`(可选) |
+| 7 | Kimi | https://api.moonshot.cn/v1 | moonshot-v1-128k | OpenAI Compat | Bearer Token | `OPENAI_API_KEY` + `OPENAI_BASE_URL` + `OPENAI_MODEL`(可选) |
+| 8 ⚠️ | MiniMax | https://api.MiniMax.chat/v1 ⚠️ | MiniMax-Text-01 ⚠️ | OpenAI Compat | Bearer Token | `OPENAI_API_KEY` + `OPENAI_BASE_URL` + `OPENAI_MODEL`(可选) |
+| 9 ⚠️ | 接口 AI | https://api.api2d.net/v1 ⚠️ | gpt-4o-mini ⚠️ | OpenAI Compat | Bearer Token | `OPENAI_API_KEY` + `OPENAI_BASE_URL` + `OPENAI_MODEL`(可选) |
+| 10 ⚠️ | 胜算云 | https://api.shengsuanyun.com/v1 ⚠️ | gpt-4o-mini ⚠️ | OpenAI Compat | Bearer Token | `OPENAI_API_KEY` + `OPENAI_BASE_URL` + `OPENAI_MODEL`(可选) |
+| 11 ⚠️ | TeamoRouter | https://api.teamorouter.com/v1 ⚠️ | claude-3-5-sonnet ⚠️ | OpenAI Compat | Bearer Token | `OPENAI_API_KEY` + `OPENAI_BASE_URL` + `OPENAI_MODEL`(可选) |
+| 12 | Custom | (空,用户填) | (空,用户填) | OpenAI Compat | Bearer Token | `OPENAI_API_KEY` + `OPENAI_BASE_URL` + `OPENAI_MODEL`(可选) |
+
+⚠️ **占位标记**:8/9/10/11 四行 base_url + model 是 brainstorming 阶段填的占位值,实装前用户须核实 / 修正。Anthropic / OpenAI / Ollama / DeepSeek / Zhipu / Kimi 公开 API 真实。
 
 **校验**(Custom + 用户编辑时):
-- base_url:`http://localhost:*` 或 `https://*`(防 SSRF,本地地址不限制端口)
+- base_url:`http://localhost:*` / `http://127.0.0.1:*` / `https://*`(防 SSRF,本地地址不限端口,IPv4 loopback 支持 IP 字面量)
 - model:非空字符串,长度 ≤ 200
 
 ---
@@ -137,34 +139,61 @@
 
 ## 5. env var 注入(关键路径)
 
-**触发点**:`run_pipeline` / `resume_pipeline` Tauri command 调 `tokio::process::Command` 前。
+**触发点**:`run_pipeline` / `resume_pipeline` Tauri command 在调 `spawn_mtd` 前。
 
-**逻辑**(`commands.rs` 改动):
+**逻辑**(三层协作):
 ```rust
+// 1. llm_profiles + keyring_store:读 active profile + key,生成 env_vars
 async fn run_pipeline(inbox: String, opts: ...) -> CommandResponse<...> {
-    // 1. 读 active profile(从 metadata JSON)
-    let active = llm_profiles::get_active_profile()?;
-    // 2. 读 key(从 OS keyring)
-    let key = keyring_store::read_key(&active.name)?;
-    // 3. 按 provider 模板生成 env var
-    let env_vars = llm_profiles::to_env_vars(&active, &key)?;
-    // 4. spawn mtd 时 env 注入
-    let mut cmd = Command::new("uv");
-    cmd.args(&["run", "mtd", "run", &inbox, ...])
-        .envs(env_vars);  // ANTHROPIC_API_KEY=... / OPENAI_API_KEY=... / OLLAMA_HOST=...
-    // 5. 启动 + 返回 work_dir
+    let active = llm_profiles::get_active_profile()?;        // metadata JSON
+    let key = keyring_store::read_key(&active.name)?;        // OS keyring
+    let env_vars = llm_profiles::to_env_vars(&active, &key)?; // 模板映射
+
+    // 2. runner.rs:env_vars 透传到 SpawnSpec,spawn_mtd 内 .env_clear().envs(env_vars)
+    let spec = build_mtd_run_args(...);
+    let spec_with_env = SpawnSpec { env_vars, ..spec };
+    let child = spawn_mtd(&spec_with_env).await?;            // .env_clear() + .envs(env_vars)
+
+    // 3. RunRegistry: 注册 + 后台监控(沿用 W14-C 多课程并发)
+    registry.insert(work_dir, child, inbox, log_path).await?;
+    Ok(work_dir)
+}
+```
+
+**SpawnSpec 扩展**(`runner.rs` 改动,与 §9 一致):
+```rust
+pub struct SpawnSpec {
+    pub program: String,
+    pub args: Vec<String>,
+    pub work_dir: String,
+    pub log_path: String,
+    pub env_vars: HashMap<String, String>,  // NEW: env vars to inject to child
+}
+
+pub async fn spawn_mtd(spec: &SpawnSpec) -> Result<Child, String> {
+    ...
+    let mut cmd = Command::new(&spec.program);
+    cmd.args(&spec.args)
+        .current_dir(&spec.work_dir)
+        .env_clear()                                  // 清父进程 env(W14-D trust_env=False 思路,防 HTTP_PROXY 污染)
+        .envs(&spec.env_vars)                         // 注入 active profile env vars
+        .stdout(Stdio::from(log))
+        .stderr(Stdio::from(err_log))
+        .kill_on_drop(true);
+    cmd.spawn().map_err(...)
 }
 ```
 
 **env var 名映射**(沿用 W14-D 全 provider trust_env=False 路径):
 - Anthropic: `ANTHROPIC_API_KEY` + `ANTHROPIC_BASE_URL`(可选)
 - OpenAI / OpenAI Compat: `OPENAI_API_KEY` + `OPENAI_BASE_URL`(可选) + `OPENAI_MODEL`(可选)
-- Ollama: `OLLAMA_HOST` + `OLLAMA_MODEL`(无 key,空)
+- LM Studio:同上,`OPENAI_MODEL` 必填(因 LM Studio 不暴露模型 list)
+- Ollama: `OLLAMA_HOST` + `OLLAMA_MODEL`(无 key)
 
 **安全**:
-- env 注入只对 mtd 子进程生效,父 Tauri 进程不持有明文 key(避免内存 dump 泄露)
-- 父进程不写文件,不留痕
-- keyring 由 OS 加密(Win DPAPI / Mac Keychain / Linux Secret Service)
+- env 注入只对 mtd 子进程生效。父 Tauri 进程 spawn 前瞬时持有 key 用于 env 注入(read_keyring → to_env_vars → spawn ≤ 100ms 窗口),**不在 log / UI / registry / 持久化文件中留痕**
+- keyring 由 OS 加密(Win DPAPI / Mac Keychain / Linux Secret Service),明文不出 OS 边界
+- spawn_mtd 用 `env_clear()` 清父进程环境再 `envs(env_vars)`,避免父进程 HTTP_PROXY 等污染子进程(W14-D trust_env=False 思路)
 
 ---
 
@@ -301,6 +330,11 @@ W15-A 实装 Providers,其它子菜单显示但内容"Coming soon"(预留 B/C)�
 - [保存] 调 save_llm_profile
 - 关闭 modal → 刷新列表
 
+**Tool Search / Experimental Beta toggle 显示规则**:
+- `tool_search_enabled` 与 `experimental_betas_disabled` 是 **Anthropic 专属** 字段
+- 规则:当且仅当 `provider == "Anthropic"` 时,modal 显示这两个 checkbox;其他 provider 隐藏(not disabled,直接不渲染)
+- 后端 `save_llm_profile`:非 Anthropic provider 收到 `tool_search_enabled=true` 时静默忽略(写 log,不报错),保持向后兼容
+
 ---
 
 ## 8. 验收清单
@@ -321,10 +355,11 @@ W15-A 实装 Providers,其它子菜单显示但内容"Coming soon"(预留 B/C)�
 | 12 | 12 个预设全部可选 | 每个预设 → 正确的 base_url + 默认 model |
 | 13 | Custom 服务商 | base_url 校验(只允许 https:// 或 http://localhost:*)|
 
-**单元测试**(目标 +30 cases,共 73+):
-- keyring_store:read/write/delete(用 mock keyring 测试 crate 或 conditional #[cfg(test)] 实际 keyring)
-- llm_profiles:12 个模板字段正确 + env var 映射正确 + base_url 校验
-- commands:5 个 command 的 happy path + error path
+**单元测试**(目标 +30 cases,共 73+,**全部走 `#[cfg(test)] mod tests` 在源文件内**,沿用现有 43 测试模式,不新建 `src-tauri/tests/` 目录):
+- `src-tauri/src/keyring_store.rs`:5 tests(read/write/delete happy + read nonexistent 报错 + list_username)
+- `src-tauri/src/llm_profiles.rs`:17 tests(12 模板字段正确 + 5 env var 映射 + base_url 校验 / model 校验)
+- `src-tauri/src/commands.rs`:8 tests(6 commands happy path + 2 error path:PROFILE_NAME_CONFLICT + ACTIVE_PROFILE_REQUIRED)
+- **不引入** `src-tauri/tests/`(集成测试)— keyring crate 跨进程隔离麻烦,unit test 已覆盖核心逻辑
 
 **集成测试**(手动,1 session):
 - 13 步验收清单
@@ -338,12 +373,14 @@ W15-A 实装 Providers,其它子菜单显示但内容"Coming soon"(预留 B/C)�
 | `src-tauri/Cargo.toml` | + `keyring = "3"` |
 | `src-tauri/src/keyring_store.rs` | NEW — 4 函数:read / write / delete / list_username |
 | `src-tauri/src/llm_profiles.rs` | NEW — 12 模板 + env var 映射 + base_url 校验 + JSON metadata IO |
-| `src-tauri/src/commands.rs` | + 6 Tauri commands + 1 错误码 enum + run_pipeline 改 env 注入 |
+| `src-tauri/src/commands.rs` | + 6 Tauri commands + 1 错误码 enum + run_pipeline / resume_pipeline 改读 active profile + 调 llm_profiles::to_env_vars |
 | `src-tauri/src/lib.rs` | invoke_handler + 6 个 command |
-| `src-tauri/src/runner.rs` | spawn mtd 改 env 注入(mtd.log 显示 env 已注入) |
+| `src-tauri/src/runner.rs` | SpawnSpec 加 `env_vars: HashMap<String, String>` 字段;spawn_mtd 加 `.env_clear().envs(&spec.env_vars)` |
 | `src/index.html` | + Settings tab + Settings > Providers 子页 + 添加 modal + 列表渲染 + 调用 6 commands |
 | `src-tauri/capabilities/default.json` | 不改(IPC 不需新权限) |
-| `tests/` | + 30 unit tests(覆盖 keyring + 12 模板 + env var + commands) |
+| `src-tauri/src/keyring_store.rs`(内嵌) | + 5 unit tests |
+| `src-tauri/src/llm_profiles.rs`(内嵌) | + 17 unit tests |
+| `src-tauri/src/commands.rs`(内嵌) | + 8 unit tests |
 | `docs/superpowers/specs/2026-07-23-w15-a-llm-api-settings-design.md` | 本 spec |
 | `docs/superpowers/plans/2026-07-23-w15-a-llm-api-settings.md` | 实施 plan(writing-plans skill 写) |
 | `handoff-w15-a-llm-api-settings-2026-07-XX.md` | handoff |
@@ -361,7 +398,7 @@ W15-A 实装 Providers,其它子菜单显示但内容"Coming soon"(预留 B/C)�
 
 | 风险 | 缓解 |
 |---|---|
-| keyring crate 跨平台兼容 | 选 v3(主流支持 Win/Mac/Linux);Win 需 admin 一次(OS 提示),后续免;Linux 需 gnome-keyring / kwallet |
+| keyring crate 跨平台兼容 | 选 v3(主流支持 Win/Mac/Linux);Win 走 Windows Credential Manager(WDPAPI,按用户存储,无需 admin);Mac 走 Keychain;Linux 需 gnome-keyring / kwallet 或 secret-service daemon |
 | Custom URL SSRF | 校验只允许 `https://` + `http://localhost:*` |
 | 12 个服务商 model 默认值过期 | spec 标注"每版本手工更新",W15-A 启动后用 mtd 主仓 LLMConfig 同步 |
 | **12 个服务商 base_url 是占位** | **brainstorming 阶段填的占位值(MiniMax/接口AI/胜算云/TeamoRouter 等),W15-A 实装时需用户核实 / 修正。Anthropic / OpenAI / Ollama / DeepSeek / Zhipu / Kimi 公开 API 是真实的,其它不一定** |
