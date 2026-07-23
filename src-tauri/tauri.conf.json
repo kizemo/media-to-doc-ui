@@ -23,12 +23,18 @@
   },
   "bundle": {
     "active": true,
-    "targets": "nsis",
+    "targets": "all",
     "icon": [
+      "icons/icon.ico",
       "icons/icon.png"
     ],
     "windows": {
-      "nsis": {}
+      "nsis": {},
+      "wix": {
+        "language": [
+          "zh-CN"
+        ]
+      }
     }
   }
 }
