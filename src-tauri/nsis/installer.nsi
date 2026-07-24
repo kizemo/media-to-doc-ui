@@ -1,4 +1,4 @@
-; media-to-doc NSIS installer (W14-C B + v1.4.0 bump + W14-G+ D 盘默认)
+; media-to-doc NSIS installer (W14-C B + v1.4.0 bump + W14-G+ D 盘默认 + v1.4.1 v0.1.0 badge fix)
 ; Uses system NSIS 3.12, bypasses Tauri bundler GitHub TLS issue
 ; W14-G+: Tauri `windows.nsis.template` 字段把本文件拷到 target/release/nsis/x64/installer.nsi,
 ;         makensis working dir 改为 target/release/nsis/x64/(上 2 层到 target/release/);
@@ -7,7 +7,7 @@
 ;         MUI_PAGE_LICENSE 删除(原 LICENSE.txt 不在新 working dir,无 license 页)
 
 !define PRODUCT_NAME "media-to-doc"
-!define PRODUCT_VERSION "1.4.0"
+!define PRODUCT_VERSION "1.4.1"
 !define PRODUCT_PUBLISHER "Duanyi"
 !define PRODUCT_DIR_REGKEY "Software\Microsoft\Windows\CurrentVersion\App Paths\media-to-doc-ui.exe"
 !define PRODUCT_UNINST_KEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PRODUCT_NAME}"
