@@ -254,7 +254,7 @@
 <body>
   <header>
     <h1>media-to-doc</h1>
-    <span class="badge" id="version-badge">v0.1.0</span>
+    <span class="badge" id="version-badge"></span>
     <div class="status">
       <span class="status-dot" id="status-dot"></span>
       <span id="status-text">loading…</span>
@@ -447,8 +447,11 @@
 
     // ───────── App info ─────────
     async function loadAppInfo() {
+      // 2s timeout fallback: 防 app_info hang 时 badge 一直空白/露 v0.1.0
+      const infoTimeout = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('app_info timeout 2s')), 2000));
       try {
-        const info = await invoke('app_info');
+        const info = await Promise.race([invoke('app_info'), infoTimeout]);
         $('version-badge').textContent = 'v' + info.version;
         $('info-name').textContent = info.name;
         $('info-version').textContent = info.version;
@@ -474,6 +477,7 @@
           txt.textContent = 'unknown';
         }
       } catch (e) {
+        $('version-badge').textContent = 'unknown';
         $('info-error').textContent = '⚠ ' + e;
       }
     }
