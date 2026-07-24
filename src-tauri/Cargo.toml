@@ -1,6 +1,6 @@
 [package]
 name = "media-to-doc-ui"
-version = "1.4.1"
+version = "1.4.2"
 description = "Desktop UI for media-to-doc — turn local videos into AI-illustrated Markdown + HTML lectures"
 authors = ["Duanyi"]
 edition = "2021"

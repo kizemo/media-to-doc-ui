@@ -7,7 +7,7 @@
 ;         MUI_PAGE_LICENSE 删除(原 LICENSE.txt 不在新 working dir,无 license 页)
 
 !define PRODUCT_NAME "media-to-doc"
-!define PRODUCT_VERSION "1.4.1"
+!define PRODUCT_VERSION "1.4.2"
 !define PRODUCT_PUBLISHER "Duanyi"
 !define PRODUCT_DIR_REGKEY "Software\Microsoft\Windows\CurrentVersion\App Paths\media-to-doc-ui.exe"
 !define PRODUCT_UNINST_KEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PRODUCT_NAME}"
