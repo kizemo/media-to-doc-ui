@@ -1,13 +1,16 @@
-; media-to-doc NSIS installer (W14-C B + v1.4.0 bump + W14-G+ D 盘默认 + v1.4.1 v0.1.0 badge fix)
+; media-to-doc NSIS installer (W14-C B + v1.4.0 bump + W14-G+ D 盘默认 + v1.4.1 v0.1.0 badge fix + v1.5.0 long_doc_skill bundle)
 ; Uses system NSIS 3.12, bypasses Tauri bundler GitHub TLS issue
 ; W14-G+: Tauri `windows.nsis.template` 字段把本文件拷到 target/release/nsis/x64/installer.nsi,
 ;         makensis working dir 改为 target/release/nsis/x64/(上 2 层到 target/release/);
 ;         OutFile 必须为 "nsis-output.exe"(Tauri 期望的固定名,会 fs::rename 到 bundle/nsis/<product>_<version>_<arch>-setup.exe);
 ;         File 路径使用 ..\..\ 相对路径;
-;         MUI_PAGE_LICENSE 删除(原 LICENSE.txt 不在新 working dir,无 license 页)
+;         MUI_PAGE_LICENSE 删除(原 LICENSE.txt 不在新 working dir,无 license 页);
+; v1.5.0: 自定义 NSIS 完全绕过 Tauri bundler,故 tauri.conf.json bundle.resources 不会自动 copy;
+;         这里显式 File /r 把 vendored long_doc_skill snapshot 打到 $INSTDIR\long_doc_skill\。
+;         用户机器固定主仓路径(F:\soft\00selfmade\media-to-doc),跨机器通过 MEDIA_TO_DOC_PROJECT env var 兼容。
 
 !define PRODUCT_NAME "media-to-doc"
-!define PRODUCT_VERSION "1.4.2"
+!define PRODUCT_VERSION "1.5.0"
 !define PRODUCT_PUBLISHER "Duanyi"
 !define PRODUCT_DIR_REGKEY "Software\Microsoft\Windows\CurrentVersion\App Paths\media-to-doc-ui.exe"
 !define PRODUCT_UNINST_KEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PRODUCT_NAME}"
@@ -38,6 +41,12 @@ Section "Install"
   File "..\..\media-to-doc-ui.exe"
   CreateDirectory "$INSTDIR"
 
+  ; v1.5.0: vendored long_doc_skill snapshot(主仓 src/media_to_doc/data/long_doc_skill/)
+  ; 通过绝对路径直接复制到 $INSTDIR\long_doc_skill\。
+  ; Python 侧 importlib.resources 在 wheel 找不到 snapshot 时回退读 $MEDIA_TO_DOC_PROJECT/src/media_to_doc/data/long_doc_skill\
+  ; (用户机器通常是 F:\soft\00selfmade\media-to-doc);这里直接打到 $INSTDIR 是更稳的兜底。
+  File /r "F:\soft\00selfmade\media-to-doc\src\media_to_doc\data\long_doc_skill"
+
   WriteRegStr HKLM "${PRODUCT_DIR_REGKEY}" "" "$INSTDIR\media-to-doc-ui.exe"
   WriteRegStr HKLM "${PRODUCT_UNINST_KEY}" "DisplayName" "${PRODUCT_NAME}"
   WriteRegStr HKLM "${PRODUCT_UNINST_KEY}" "UninstallString" "$INSTDIR\uninst.exe"
@@ -64,6 +73,10 @@ SectionEnd
 Section "Uninstall"
   Delete "$INSTDIR\media-to-doc-ui.exe"
   Delete "$INSTDIR\uninst.exe"
+
+  ; v1.5.0: 清理 long_doc_skill(整个目录)
+  RMDir /r "$INSTDIR\long_doc_skill"
+
   RMDir "$INSTDIR"
 
   Delete "$SMPROGRAMS\${PRODUCT_NAME}\${PRODUCT_NAME}.lnk"

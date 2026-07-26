@@ -1,9 +1,10 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Default capability for the desktop app — W14-B 启动最小权限集",
+  "description": "Default capability — W15-A T7: 维持 core:default 即可,LLM commands 通过 tauri::generate_handler! 默认放行(实证见 handoff §3)",
   "windows": ["main"],
   "permissions": [
-    "core:default"
+    "core:default",
+    "dialog:default"
   ]
 }

@@ -31,6 +31,11 @@ pub struct SpawnSpec {
   pub work_dir: String,
   /// stdout/stderr 落盘的日志文件
   pub log_path: String,
+  /// W15-A (T5):注入子进程的 env vars(由 active LLM profile + keyring key 生成)。
+  /// `spawn_mtd` 会先 `.env_clear()` 防父进程 HTTP_PROXY 污染(W14-D 思路),
+  /// 再 `.envs(&spec.env_vars)` 注入这一份。默认空 HashMap。
+  #[serde(default)]
+  pub env_vars: HashMap<String, String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -46,6 +51,12 @@ pub struct RunPipelineResult {
 /// `project_root`:`media-to-doc` Python 项目根(给 `uv --project` 用),
 /// `inbox`:要处理的 inbox 目录(必须含至少一个媒体文件)。
 /// `llm` / `imagegen` / `stop_after`:CLI 透传覆盖。
+///
+/// W15-A T7.2:三个新参数 `llm_profile_name` / `image_agent_profile_name` /
+/// `task_text` —— Tauri UI 是 profile 单一真相源,主仓不会自己查 profile
+/// (无 registry);这 3 个 flag 仅作 logging / debug(让 spawn cmd line 显示
+/// 用户选了哪个 profile / 任务文本)。真实认证仍走 `spec.env_vars`(`inject_
+/// profile_env`)。
 pub fn build_mtd_run_args(
   project_root: &Path,
   inbox: &Path,
@@ -54,6 +65,10 @@ pub fn build_mtd_run_args(
   stop_after: Option<&str>,
   no_longdoc: bool,
   force: bool,
+  // W15-A T7.2:per-run profile + task_text 透传(仅 logging)
+  llm_profile_name: Option<&str>,
+  image_agent_profile_name: Option<&str>,
+  task_text: Option<&str>,
 ) -> SpawnSpec {
   let program = std::env::var("UV_BIN").unwrap_or_else(|_| "uv".to_string());
   let work_dir = inbox
@@ -84,20 +99,37 @@ pub fn build_mtd_run_args(
   if force {
     args.push("--force".to_string());
   }
+  // W15-A T7.2:per-run profile + task_text 透传(主仓仅 logging)
+  if let Some(n) = llm_profile_name {
+    args.extend(["--llm-profile-name".to_string(), n.to_string()]);
+  }
+  if let Some(n) = image_agent_profile_name {
+    args.extend(["--image-agent-profile-name".to_string(), n.to_string()]);
+  }
+  if let Some(t) = task_text {
+    args.extend(["--task-text".to_string(), t.to_string()]);
+  }
   SpawnSpec {
     program,
     args,
     work_dir: work_dir.to_string_lossy().into_owned(),
     log_path: log_path.to_string_lossy().into_owned(),
+    env_vars: HashMap::new(),
   }
 }
 
 /// 拼装 `uv run mtd resume <work_dir> [...]` 的参数(续跑用)。
+///
+/// W15-A T7.2:同步支持 3 个新 flag(同 `build_mtd_run_args` 语义)。
 pub fn build_mtd_resume_args(
   project_root: &Path,
   work_dir: &Path,
   force: bool,
   stop_after: Option<&str>,
+  // W15-A T7.2
+  llm_profile_name: Option<&str>,
+  image_agent_profile_name: Option<&str>,
+  task_text: Option<&str>,
 ) -> SpawnSpec {
   let program = std::env::var("UV_BIN").unwrap_or_else(|_| "uv".to_string());
   let log_path = work_dir.join("mtd.log");
@@ -115,11 +147,22 @@ pub fn build_mtd_resume_args(
   if let Some(stop_after) = stop_after {
     args.extend(["--stop-after".to_string(), stop_after.to_string()]);
   }
+  // W15-A T7.2:per-run profile + task_text 透传(主仓仅 logging)
+  if let Some(n) = llm_profile_name {
+    args.extend(["--llm-profile-name".to_string(), n.to_string()]);
+  }
+  if let Some(n) = image_agent_profile_name {
+    args.extend(["--image-agent-profile-name".to_string(), n.to_string()]);
+  }
+  if let Some(t) = task_text {
+    args.extend(["--task-text".to_string(), t.to_string()]);
+  }
   SpawnSpec {
     program,
     args,
     work_dir: work_dir.to_string_lossy().into_owned(),
     log_path: log_path.to_string_lossy().into_owned(),
+    env_vars: HashMap::new(),
   }
 }
 
@@ -442,15 +485,34 @@ pub async fn spawn_mtd(
   let err_log = log
     .try_clone()
     .map_err(|e| format!("clone log handle 失败: {e}"))?;
-  let mut cmd = Command::new(&spec.program);
-  cmd.args(&spec.args)
-    .current_dir(&spec.work_dir)
-    .stdout(Stdio::from(log))
-    .stderr(Stdio::from(err_log))
-    .kill_on_drop(true);
+  let mut cmd = build_child_command(spec);
+  cmd.stdout(Stdio::from(log))
+    .stderr(Stdio::from(err_log));
   cmd
     .spawn()
     .map_err(|e| format!("spawn `{}` 失败: {e}", spec.program))
+}
+
+/// 从 SpawnSpec 构造 tokio::process::Command(纯函数,可单测)。
+///
+/// W15-A (T5) 关键行为:
+/// - `.env_clear()` — 清空父进程 env vars(W14-D trust_env=False 思路,
+///   防公司 VPN HTTP_PROXY 等 8 个 proxy vars 污染子进程撞 SSL/DNS)
+/// - `.env("PATH", ...)` — 重新注入父进程 PATH,让 uv / sh 等可执行文件
+///   在子进程里仍可被找到(env_clear 后 PATH 也被清了,uv 不在 System32,
+///   Windows CreateProcess 会报"系统找不到指定的文件")
+/// - `.envs(&spec.env_vars)` — 注入 active LLM profile 生成的 env vars
+///   (ANTHROPIC_API_KEY / OPENAI_API_KEY / OLLAMA_HOST 等)。
+///   spec.env_vars 不会注入 PATH,即使同名也仅覆盖,无副作用。
+pub fn build_child_command(spec: &SpawnSpec) -> Command {
+  let mut cmd = Command::new(&spec.program);
+  cmd.args(&spec.args)
+    .current_dir(&spec.work_dir)
+    .env_clear()
+    .env("PATH", std::env::var("PATH").unwrap_or_default())
+    .envs(&spec.env_vars)
+    .kill_on_drop(true);
+  cmd
 }
 
 /// 主动 kill 子进程(Windows:taskkill /T /F /PID;Unix:kill -TERM)。
@@ -503,7 +565,7 @@ mod tests {
 
   #[test]
   fn build_mtd_run_args_basic() {
-    let spec = build_mtd_run_args(&project(), &inbox(), None, None, None, false, false);
+    let spec = build_mtd_run_args(&project(), &inbox(), None, None, None, false, false, None, None, None);
     assert_eq!(spec.program, "uv");
     // 检查关键参数
     assert!(spec.args.windows(2).any(|w| w[0] == "--project" && w[1].contains("media-to-doc")));
@@ -526,6 +588,7 @@ mod tests {
       Some("chapters"),
       true,
       true,
+      None, None, None,
     );
     assert!(spec.args.contains(&"--llm".to_string()));
     assert!(spec.args.contains(&"anthropic".to_string()));
@@ -540,7 +603,7 @@ mod tests {
   #[test]
   fn build_mtd_resume_args_basic() {
     let work = inbox().join("output");
-    let spec = build_mtd_resume_args(&project(), &work, false, None);
+    let spec = build_mtd_resume_args(&project(), &work, false, None, None, None, None);
     assert!(spec.args.contains(&"resume".to_string()));
     assert!(spec.args.contains(&work.to_string_lossy().into_owned()));
     assert!(!spec.args.contains(&"--force".to_string()));
@@ -578,6 +641,7 @@ mod tests {
         },
         work_dir: std::env::temp_dir().to_string_lossy().into_owned(),
         log_path: std::env::temp_dir().join("test_max1.log").to_string_lossy().into_owned(),
+        env_vars: HashMap::new(),
       }).await.expect("spawn 1");
       let r1 = reg.insert("wd1".into(), child, "/inbox/a".into(), "/log/a".into()).await;
       assert!(r1.is_ok());
@@ -592,6 +656,7 @@ mod tests {
         },
         work_dir: std::env::temp_dir().to_string_lossy().into_owned(),
         log_path: std::env::temp_dir().join("test_max2.log").to_string_lossy().into_owned(),
+        env_vars: HashMap::new(),
       }).await.expect("spawn 2");
       let r2 = reg.insert("wd2".into(), child2, "/inbox/b".into(), "/log/b".into()).await;
       assert!(r2.is_err());
@@ -620,6 +685,7 @@ mod tests {
         },
         work_dir: std::env::temp_dir().to_string_lossy().into_owned(),
         log_path: std::env::temp_dir().join("test_ccl.log").to_string_lossy().into_owned(),
+        env_vars: HashMap::new(),
       }).await.expect("spawn");
       reg.insert("wd_c".into(), child, "/inbox/c".into(), "/log/c".into()).await.unwrap();
       // cancel
@@ -677,5 +743,268 @@ mod tests {
       let all = reg.list_all().await;
       assert_eq!(all.len(), 0);
     });
+  }
+
+  // ── T5 (W15-A): env var 注入到 spawn_mtd 子进程 ─────────────────
+
+  /// T5 测试 1:SpawnSpec.env_vars 字段存在且默认空 HashMap。
+  /// 这是 W15-A Task 4 / spec §5 的字段存在性保证。
+  #[test]
+  fn spawn_spec_env_vars_defaults_to_empty() {
+    let run_spec = build_mtd_run_args(
+      &project(),
+      &inbox(),
+      None, None, None, false, false,
+      None, None, None,
+    );
+    assert!(
+      run_spec.env_vars.is_empty(),
+      "build_mtd_run_args 默认 env_vars 应为空, 实际: {:?}",
+      run_spec.env_vars
+    );
+
+    let resume_spec = build_mtd_resume_args(
+      &project(),
+      &inbox().join("output"),
+      false, None,
+      None, None, None,
+    );
+    assert!(
+      resume_spec.env_vars.is_empty(),
+      "build_mtd_resume_args 默认 env_vars 应为空, 实际: {:?}",
+      resume_spec.env_vars
+    );
+  }
+
+  /// T5 测试 2:`spawn_mtd` 真的 `.env_clear()` + `.envs(spec.env_vars)`。
+  ///
+  /// 实跑一个 cmd / sh echo 短进程:
+  /// - 父进程设 HTTP_PROXY=evil:8080(模拟公司 VPN proxy 污染)
+  /// - spec.env_vars 注入 OPENAI_API_KEY=secret
+  /// - 子进程打印两个变量
+  ///
+  /// 期望子进程 stdout:
+  /// - 含 `OPENAI_API_KEY=secret`(注入生效)
+  /// - 不含 `evil:8080`(env_clear 生效)
+  ///
+  /// 用 cmd /c echo(W)或 sh -c echo(Unix)毫秒级进程,不真起 mtd(plan §89 允许)。
+  /// 注:不能用 spawn_mtd 直跑,因为它把 stdout 重定向到 log 文件,
+  /// `wait_with_output` 抓不到。改用 build_child_command 纯函数 + override stdout。
+  #[test]
+  fn spawn_mtd_clears_parent_env_and_injects_spec_env() {
+    let rt = tokio::runtime::Runtime::new().unwrap();
+
+    // 父进程污染:HTTP_PROXY (公司 VPN 典型场景)
+    std::env::set_var("HTTP_PROXY", "http://evil:8080");
+
+    rt.block_on(async {
+      let mut env_vars = HashMap::new();
+      env_vars.insert("OPENAI_API_KEY".to_string(), "sk-w15a-secret".to_string());
+
+      let spec = SpawnSpec {
+        program: if cfg!(windows) { "cmd".to_string() } else { "sh".to_string() },
+        args: if cfg!(windows) {
+          vec![
+            "/c".to_string(),
+            "echo OPENAI_API_KEY=%OPENAI_API_KEY%&echo HTTP_PROXY=%HTTP_PROXY%".to_string(),
+          ]
+        } else {
+          vec![
+            "-c".to_string(),
+            "echo OPENAI_API_KEY=$OPENAI_API_KEY; echo HTTP_PROXY=$HTTP_PROXY".to_string(),
+          ]
+        },
+        work_dir: std::env::temp_dir().to_string_lossy().into_owned(),
+        log_path: std::env::temp_dir().join("w15a-t5-env-test.log").to_string_lossy().into_owned(),
+        env_vars,
+      };
+
+      let mut cmd = build_child_command(&spec);
+      // override stdout 为 piped,才能 wait_with_output 抓到
+      cmd.stdout(Stdio::piped());
+      let child = cmd.spawn().expect("spawn 应成功");
+      let output = tokio::time::timeout(
+        std::time::Duration::from_secs(10),
+        child.wait_with_output(),
+      )
+      .await
+      .expect("子进程 10s 内应退出")
+      .expect("wait_with_output 应 OK");
+      let stdout = String::from_utf8_lossy(&output.stdout);
+
+      assert!(
+        stdout.contains("sk-w15a-secret"),
+        "spec.env_vars OPENAI_API_KEY 应注入子进程,stdout: {stdout}"
+      );
+      assert!(
+        !stdout.contains("evil:8080"),
+        "父进程 HTTP_PROXY 应被 env_clear 清掉,stdout: {stdout}"
+      );
+    });
+
+    // 清理
+    std::env::remove_var("HTTP_PROXY");
+  }
+
+  /// T5 测试 3:`build_child_command` 在 `.env_clear()` 后仍保留父进程 PATH。
+  ///
+  /// 必要性:env_clear 后 PATH 也是空,uv 等可执行文件在 Windows 上不在
+  /// System32,CreateProcess 找不到会报"系统找不到指定的文件"。
+  /// 因此 build_child_command 必须 `.env("PATH", std::env::var("PATH"))`。
+  /// 父进程 PATH 应非空(测试机器上都有),子进程 echo PATH 验证保留成功。
+  #[test]
+  fn build_child_command_inherits_parent_path() {
+    // 前置:父进程 PATH 应非空
+    let parent_path = std::env::var("PATH").unwrap_or_default();
+    assert!(
+      !parent_path.is_empty(),
+      "父进程 PATH 应非空,实际: {parent_path:?}"
+    );
+
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    rt.block_on(async {
+      let spec = SpawnSpec {
+        program: if cfg!(windows) { "cmd".to_string() } else { "sh".to_string() },
+        args: if cfg!(windows) {
+          // Windows cmd: if "%PATH%"=="" (echo EMPTY) else (echo NONEMPTY)
+          vec![
+            "/c".to_string(),
+            "if \"%PATH%\"==\"\" (echo EMPTY) else (echo NONEMPTY)".to_string(),
+          ]
+        } else {
+          // Unix sh: if [ -z "$PATH" ]; then echo EMPTY; else echo NONEMPTY; fi
+          vec![
+            "-c".to_string(),
+            "if [ -z \"$PATH\" ]; then echo EMPTY; else echo NONEMPTY; fi".to_string(),
+          ]
+        },
+        work_dir: std::env::temp_dir().to_string_lossy().into_owned(),
+        log_path: std::env::temp_dir().join("w15a-t5-path.log").to_string_lossy().into_owned(),
+        env_vars: HashMap::new(),
+      };
+
+      let mut cmd = build_child_command(&spec);
+      cmd.stdout(Stdio::piped());
+      let child = cmd.spawn().expect("spawn 应成功");
+      let output = tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        child.wait_with_output(),
+      )
+      .await
+      .expect("5s 内应退出")
+      .expect("wait_with_output 应 OK");
+      let stdout = String::from_utf8_lossy(&output.stdout);
+
+      assert!(
+        stdout.contains("NONEMPTY"),
+        "build_child_command 应 .env(\"PATH\", parent_path),子进程 PATH 应非空,stdout: {stdout}"
+      );
+    });
+  }
+
+  // ── T7.2 (W15-A): runner args 透传 profile_name + task_text ─────────
+
+  /// T7.2 测试 1:`build_mtd_run_args` 显式传 `llm_profile_name` → 拼接
+  /// `--llm-profile-name <name>`。
+  #[test]
+  fn t7_2_build_run_args_with_profile_name_adds_flag() {
+    let spec = build_mtd_run_args(
+      &project(),
+      &inbox(),
+      None, None, None, false, false,
+      Some("minimax-prod"),
+      None,
+      None,
+    );
+    assert!(
+      spec.args.contains(&"--llm-profile-name".to_string()),
+      "spec.args 应含 --llm-profile-name, 实际: {:?}",
+      spec.args
+    );
+    let idx = spec
+      .args
+      .iter()
+      .position(|a| a == "--llm-profile-name")
+      .expect("flag 应存在");
+    assert_eq!(spec.args[idx + 1], "minimax-prod");
+  }
+
+  /// T7.2 测试 2:`image_agent_profile_name` 拼接 `--image-agent-profile-name`。
+  #[test]
+  fn t7_2_build_run_args_with_image_agent_profile_name_adds_flag() {
+    let spec = build_mtd_run_args(
+      &project(),
+      &inbox(),
+      None, None, None, false, false,
+      None,
+      Some("deepseek-prod"),
+      None,
+    );
+    assert!(spec.args.contains(&"--image-agent-profile-name".to_string()));
+    let idx = spec
+      .args
+      .iter()
+      .position(|a| a == "--image-agent-profile-name")
+      .expect("flag 应存在");
+    assert_eq!(spec.args[idx + 1], "deepseek-prod");
+  }
+
+  /// T7.2 测试 3:`task_text` 拼接 `--task-text`。
+  #[test]
+  fn t7_2_build_run_args_with_task_text_adds_flag() {
+    let spec = build_mtd_run_args(
+      &project(),
+      &inbox(),
+      None, None, None, false, false,
+      None,
+      None,
+      Some("突出客户案例"),
+    );
+    assert!(spec.args.contains(&"--task-text".to_string()));
+    let idx = spec
+      .args
+      .iter()
+      .position(|a| a == "--task-text")
+      .expect("flag 应存在");
+    assert_eq!(spec.args[idx + 1], "突出客户案例");
+  }
+
+  /// T7.2 测试 4:三个新参数都不传 → 三 flag 都不拼接(零回归)。
+  #[test]
+  fn t7_2_build_run_args_without_new_params_no_flag() {
+    let spec = build_mtd_run_args(
+      &project(),
+      &inbox(),
+      Some("ollama"),
+      Some("skip"),
+      None,
+      false,
+      false,
+      None, None, None,
+    );
+    assert!(!spec.args.contains(&"--llm-profile-name".to_string()));
+    assert!(!spec.args.contains(&"--image-agent-profile-name".to_string()));
+    assert!(!spec.args.contains(&"--task-text".to_string()));
+  }
+
+  /// T7.2 测试 5:`build_mtd_resume_args` 同步支持 3 个新 flag。
+  #[test]
+  fn t7_2_build_resume_args_with_all_three_new_flags() {
+    let work = inbox().join("output");
+    let spec = build_mtd_resume_args(
+      &project(),
+      &work,
+      false,
+      None,
+      Some("minimax-prod"),
+      Some("deepseek-prod"),
+      Some("task"),
+    );
+    assert!(spec.args.contains(&"--llm-profile-name".to_string()));
+    assert!(spec.args.contains(&"--image-agent-profile-name".to_string()));
+    assert!(spec.args.contains(&"--task-text".to_string()));
+    // resume 仍保留 work_dir 透传 + 不含 --force(零回归)
+    assert!(spec.args.contains(&work.to_string_lossy().into_owned()));
+    assert!(!spec.args.contains(&"--force".to_string()));
   }
 }

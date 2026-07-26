@@ -13,15 +13,20 @@
 use serde::Serialize;
 
 mod commands;
+mod keyring_store;
+mod llm_profiles;
 mod python_bridge;
 mod runner;
 mod types;
 
 pub use commands::{
-  cancel_run, check_status, list_all_runs, list_courses, list_outputs, list_running, read_lecture,
-  read_log, resume_pipeline, run_pipeline, CancelResult, CheckStatusResult, CourseEntry,
-  ListAllRunsResult, ListCoursesResult, ListOutputsResult, ListRunningResult, OutputsGroups,
-  ReadLectureResult, ReadLogResult, StageStatus,
+  add_project, cancel_run, check_status, delete_llm_profile, get_active_llm_profile_name,
+  list_all_runs, list_courses, list_llm_profiles, list_outputs, list_projects, list_running,
+  read_lecture, read_log, remove_project, resume_pipeline, run_pipeline, save_llm_profile,
+  set_active_profile, test_llm_connection, touch_project,
+  CancelResult, CheckStatusResult, CourseEntry, ListAllRunsResult, ListCoursesResult,
+  ListOutputsResult, ListRunningResult, OutputsGroups, ProjectEntry, ReadLectureResult,
+  ReadLogResult, SaveProfileArgs, SessionRef, StageStatus, TestConnectionResult,
 };
 pub use python_bridge::{get_run_metrics, list_runs, probe, ProbeResult};
 pub use runner::{CompletedRun, RunPipelineResult, RunRegistry, RunStatusInfo, RunningRun, SpawnSpec};
@@ -70,6 +75,7 @@ fn ping(message: String) -> String {
 pub fn run() {
   runner::init_registry();
   tauri::Builder::default()
+    .plugin(tauri_plugin_dialog::init())
     .invoke_handler(tauri::generate_handler![
       // W14-B hello world
       app_info,
@@ -91,6 +97,18 @@ pub fn run() {
       read_log,
       // W14-C 多课程并发(list_all_runs)
       list_all_runs,
+      // W15-A 6 LLM API commands
+      list_llm_profiles,
+      get_active_llm_profile_name,
+      save_llm_profile,
+      set_active_profile,
+      delete_llm_profile,
+      test_llm_connection,
+      // W15-A T7.2 4 个 project registry commands
+      list_projects,
+      add_project,
+      remove_project,
+      touch_project,
     ])
     .run(tauri::generate_context!())
     .expect("error while running media-to-doc UI");
