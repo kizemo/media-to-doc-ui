@@ -2,13 +2,53 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Add LLM API Settings panel to media-to-doc desktop — manage multiple LLM profiles (12 built-in providers + Custom) with API keys stored in OS keyring, env var injection into mtd subprocess on Run pipeline.
+**Goal:** Add LLM API Settings panel to media-to-doc desktop — manage multiple LLM profiles (9 built-in providers + Custom) with API keys stored in OS keyring, env var injection into mtd subprocess on Run pipeline.
 
 **Architecture:** Three-layer Rust backend (keyring_store → llm_profiles → commands) with runner.rs SpawnSpec.env_vars extension; vanilla JS frontend adds Settings tab + Providers subpage + add-modal. Per-provider env var templates map active profile to ANTHROPIC_API_KEY / OPENAI_API_KEY / OLLAMA_HOST etc. before spawn.
 
 **Tech Stack:** Tauri 2.11.4 + Rust 1.97 + keyring crate v3 (OS keyring) + dirs crate v5 (config dir) + reqwest v0.12 (test_connection HTTP probe) + vanilla JS frontend (existing index.html)
 
 **Spec:** `docs/superpowers/specs/2026-07-23-w15-a-llm-api-settings-design.md` (commit `565279d`, W15-A reviewer pass)
+
+---
+
+## ⚠️ W15-A 实装决策(2026-07-24,本会话用户拍板)
+
+**服务商清单 12 → 9 缩减**(本 plan 后续 Provider enum / all_templates / 测试等参考代码片段写的是 12 个版本,实装时按 spec 改成 9 个):
+
+| # | 服务商 | base_url | 默认 model | 备注 |
+|---|---|---|---|---|
+| 1 | Anthropic | https://api.anthropic.com | claude-sonnet-4-5 | 公开 API 真实 |
+| 2 | OpenAI | https://api.openai.com/v1 | gpt-4o | 公开 API 真实 |
+| 3 | Ollama | http://localhost:11434 | llama3.1 | 本地默认 |
+| 4 | LM Studio | http://localhost:1234/v1 | loaded-model | 本地 OpenAI 兼容 |
+| 5 | DeepSeek | https://api.deepseek.com | deepseek-chat | 公开 API 真实 |
+| 6 | Zhipu GLM | https://open.bigmodel.cn/api/paas/v4 | glm-4-plus | 公开 API 真实 |
+| 7 | Kimi | https://api.moonshot.cn/v1 | moonshot-v1-128k | 公开 API 真实 |
+| 8 | **MiniMax**(真实) | https://api.minimaxi.com/v1 | **MiniMax-M3** | 用户决策"必须真实支持" |
+| 9 | Custom | (空,用户填) | (空,用户填) | URL 校验防 SSRF |
+
+**已删除 3 个占位服务商**(plan 后续会提到但实装不写):
+- ~~接口 AI~~ (ApitwoD):占位 https://api.api2d.net/v1,无核实标准
+- ~~胜算云~~ (Shengsuanyun):占位 https://api.shengsuanyun.com/v1,无核实标准
+- ~~TeamoRouter~~ (TeamoRouter):占位 https://api.teamorouter.com/v1,无核实标准
+
+**MiniMax 真实 API 信息**(实装 T2 `all_templates()` 时填):
+- 文档:https://platform.minimaxi.com/document/ChatCompletion%20v2
+- Key 申请:https://platform.minimaxi.com → 用户中心 → 接口密钥
+- **默认 model:`MiniMax-M3`**(用户 2026-07-24 指定,MiniMax 当前默认大模型)
+- 备选 model(用户编辑时可切,实装时由用户核对官方文档确认):MiniMax 系列其它型号
+
+**实装步骤(T1→T8)微调**:
+- T1 `Cargo.toml` 依赖:**`keyring = { version = "4", features = ["v1"] }`**(不是 v3 — v3 + Windows 多次 `Entry::new` 同进程 race,2 个集成测试 fail;v4 + v1 feature 修好。W15-A T1 实装 2026-07-24 验证)+ `dirs = "5"`
+- T2 `Provider` enum:`Anthropic, OpenAI, Ollama, LmStudio, DeepSeek, Zhipu, Kimi, MiniMax, Custom`(9 个,删 ApitwoD/Shengsuanyun/TeamoRouter)
+- T2 `all_templates()`:9 entries(MiniMax 真实 URL)
+- T3 `provider_from_name` / `display_name_to_enum` 映射表:9 项
+- T7 测试 `provider_name_roundtrip_covers_all_9`:9 项(原 12)
+- T8 前端 `PRESETS` 数组:9 项(MiniMax 真实 base_url)
+- T8 验收清单:删"12 个预设全部可选"那条,改"9 个预设全部可选"
+
+**参考代码与实装的对应关系**:本 plan 文件(commit `f28156e`)内 12 个版本的 enum/templates/tests 是"通用骨架",实装 W15-A 时严格按本决策段 + spec §3 表格写 9 个版本即可。
 
 ---
 
@@ -88,7 +128,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["process", "io-util", "sync", "rt", "fs", "macros", "time"] }
 once_cell = "1"
-keyring = "3"
+keyring = { version = "4", features = ["v1"] }   # v4 + v1 feature 修 Windows race;v3 同进程多 Entry::new 失败
 dirs = "5"
 ```
 

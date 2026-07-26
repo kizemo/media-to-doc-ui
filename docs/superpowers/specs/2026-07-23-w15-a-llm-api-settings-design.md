@@ -7,7 +7,7 @@
 **用户决策**(brainstorming 已拍板):
 - 顺序:A → B → C
 - Key 存储:系统 keyring
-- 服务商:12 个内置 + Custom(全采纳)
+- 服务商:9 个内置 + Custom(全采纳,MiniMax 真实化,3 个占位已删)
 - Profile:多存档 + 1 active
 - Key 注入:env var 注入到 mtd 子进程
 - UI 位置:新加 Settings tab
@@ -19,7 +19,7 @@
 
 为 media-to-doc 桌面端添加 LLM API 设置面板,用户:
 1. 在 Settings > Providers 子页管理多个 LLM profile(添加 / 编辑 / 删除 / 切换 active)
-2. 选择 12 个内置服务商 + Custom,选完自动填 base_url + model 默认值
+2. 选择 9 个内置服务商 + Custom,选完自动填 base_url + model 默认值
 3. API key 加密存在 OS keyring,重启不丢
 4. mtd run 子进程启动时,Tauri 自动从 keyring 读 active profile 的 key,env var 注入
 
@@ -81,7 +81,7 @@
 
 ---
 
-## 3. 12 个内置服务商模板
+## 3. 9 个内置服务商模板(2026-07-24 W15-A 实装决策:12 → 9)
 
 | # | 名称 | base_url | 默认 model | 协议 | 认证变量 | env var |
 |---|---|---|---|---|---|---|
@@ -92,13 +92,23 @@
 | 5 | DeepSeek | https://api.deepseek.com | deepseek-chat | OpenAI Compat | Bearer Token | `OPENAI_API_KEY` + `OPENAI_BASE_URL` + `OPENAI_MODEL`(可选) |
 | 6 | Zhipu GLM | https://open.bigmodel.cn/api/paas/v4 | glm-4-plus | OpenAI Compat | Bearer Token | `OPENAI_API_KEY` + `OPENAI_BASE_URL` + `OPENAI_MODEL`(可选) |
 | 7 | Kimi | https://api.moonshot.cn/v1 | moonshot-v1-128k | OpenAI Compat | Bearer Token | `OPENAI_API_KEY` + `OPENAI_BASE_URL` + `OPENAI_MODEL`(可选) |
-| 8 ⚠️ | MiniMax | https://api.MiniMax.chat/v1 ⚠️ | MiniMax-Text-01 ⚠️ | OpenAI Compat | Bearer Token | `OPENAI_API_KEY` + `OPENAI_BASE_URL` + `OPENAI_MODEL`(可选) |
-| 9 ⚠️ | 接口 AI | https://api.api2d.net/v1 ⚠️ | gpt-4o-mini ⚠️ | OpenAI Compat | Bearer Token | `OPENAI_API_KEY` + `OPENAI_BASE_URL` + `OPENAI_MODEL`(可选) |
-| 10 ⚠️ | 胜算云 | https://api.shengsuanyun.com/v1 ⚠️ | gpt-4o-mini ⚠️ | OpenAI Compat | Bearer Token | `OPENAI_API_KEY` + `OPENAI_BASE_URL` + `OPENAI_MODEL`(可选) |
-| 11 ⚠️ | TeamoRouter | https://api.teamorouter.com/v1 ⚠️ | claude-3-5-sonnet ⚠️ | OpenAI Compat | Bearer Token | `OPENAI_API_KEY` + `OPENAI_BASE_URL` + `OPENAI_MODEL`(可选) |
-| 12 | Custom | (空,用户填) | (空,用户填) | OpenAI Compat | Bearer Token | `OPENAI_API_KEY` + `OPENAI_BASE_URL` + `OPENAI_MODEL`(可选) |
+| 8 | **MiniMax**(真实) | https://api.minimaxi.com/v1 | **MiniMax-M3** | OpenAI Compat | Bearer Token | `OPENAI_API_KEY` + `OPENAI_BASE_URL` + `OPENAI_MODEL`(可选) |
+| 9 | Custom | (空,用户填) | (空,用户填) | OpenAI Compat | Bearer Token | `OPENAI_API_KEY` + `OPENAI_BASE_URL` + `OPENAI_MODEL`(可选) |
 
-⚠️ **占位标记**:8/9/10/11 四行 base_url + model 是 brainstorming 阶段填的占位值,实装前用户须核实 / 修正。Anthropic / OpenAI / Ollama / DeepSeek / Zhipu / Kimi 公开 API 真实。
+**MiniMax 真实 API 信息**(2026-07-24 W15-A 用户决策,MiniMax-M3 必须真实支持):
+- 公司:MiniMax(国内 AI 公司,产品 MiniMax)
+- 官方文档:https://platform.minimaxi.com/document/ChatCompletion%20v2
+- API host:`api.minimaxi.com`,路径 `/v1`,兼容 OpenAI ChatCompletion
+- **默认 model:`MiniMax-M3`**(用户 2026-07-24 指定,MiniMax 当前默认大模型)— 编辑时可切其它 model
+- 备选 model(用户编辑时可切):MiniMax 系列其它型号(MiniMax-M2 / MiniMax-Text-01 / abab 系列 / MiniMax-VL-01)— 实装时由用户核对官方文档确认 model 名准确
+- API key 申请:登录 https://platform.minimaxi.com → 用户中心 → 接口密钥 → 创建(明文 Key,用户复制填到 modal)
+
+**已删除占位服务商**(W15-A 实装决策 2026-07-24):
+- ~~接口 AI~~:占位 https://api.api2d.net/v1,无核实标准,删除
+- ~~胜算云~~:占位 https://api.shengsuanyun.com/v1,无核实标准,删除
+- ~~TeamoRouter~~:占位 https://api.teamorouter.com/v1,无核实标准,删除
+
+如未来用户想用,可通过 Custom 服务商添加。
 
 **校验**(Custom + 用户编辑时):
 - base_url:`http://localhost:*` / `http://127.0.0.1:*` / `https://*`(防 SSRF,本地地址不限端口,IPv4 loopback 支持 IP 字面量)
@@ -237,7 +247,7 @@ pub async fn test_llm_connection(name: String) -> CommandResponse<TestConnection
 - `INVALID_BASE_URL`:Custom 或编辑时 URL 非法
 - `INVALID_MODEL`:model 字段非法
 - `NETWORK_ERROR`:test_connection 失败
-- `PROVIDER_NOT_FOUND`:provider 名不在 12 个内置清单
+- `PROVIDER_NOT_FOUND`:provider 名不在 9 个内置清单
 - `ACTIVE_PROFILE_REQUIRED`:run_pipeline 时无 active profile
 
 ---
@@ -352,7 +362,7 @@ W15-A 实装 Providers,其它子菜单显示但内容"Coming soon"(预留 B/C)�
 | 9 | 删除 active profile | 弹确认 → 删除后无 active,Run pipeline 报 `ACTIVE_PROFILE_REQUIRED` 错误 |
 | 10 | Test connection 失败 | 红色错误(网络 / key 错),profile 仍可保存(供离线用) |
 | 11 | 编辑 profile 不改 key | api_key=None → 保留 keyring 旧值 |
-| 12 | 12 个预设全部可选 | 每个预设 → 正确的 base_url + 默认 model |
+| 12 | 9 个预设全部可选 | 每个预设 → 正确的 base_url + 默认 model(MiniMax 真实 URL,MiniMax-M3 model) |
 | 13 | Custom 服务商 | base_url 校验(只允许 https:// 或 http://localhost:*)|
 
 **单元测试**(目标 +30 cases,共 73+,**全部走 `#[cfg(test)] mod tests` 在源文件内**,沿用现有 43 测试模式,不新建 `src-tauri/tests/` 目录):
@@ -400,8 +410,8 @@ W15-A 实装 Providers,其它子菜单显示但内容"Coming soon"(预留 B/C)�
 |---|---|
 | keyring crate 跨平台兼容 | 选 v3(主流支持 Win/Mac/Linux);Win 走 Windows Credential Manager(WDPAPI,按用户存储,无需 admin);Mac 走 Keychain;Linux 需 gnome-keyring / kwallet 或 secret-service daemon |
 | Custom URL SSRF | 校验只允许 `https://` + `http://localhost:*` |
-| 12 个服务商 model 默认值过期 | spec 标注"每版本手工更新",W15-A 启动后用 mtd 主仓 LLMConfig 同步 |
-| **12 个服务商 base_url 是占位** | **brainstorming 阶段填的占位值(MiniMax/接口AI/胜算云/TeamoRouter 等),W15-A 实装时需用户核实 / 修正。Anthropic / OpenAI / Ollama / DeepSeek / Zhipu / Kimi 公开 API 是真实的,其它不一定** |
+| 9 个服务商 model 默认值过期 | spec 标注"每版本手工更新",W15-A 启动后用 mtd 主仓 LLMConfig 同步;MiniMax model 默认 MiniMax-M3(用户 2026-07-24 指定),编辑时按 MiniMax 官方文档备选 model 列表切 |
+| **服务商 base_url 占位已部分解决** | **W15-A 实装决策(2026-07-24):MiniMax 真实化(`api.minimaxi.com` + `MiniMax-Text-01`),3 个无核实标准的占位(接口 AI / 胜算云 / TeamoRouter)已删除;7 个服务商(Anthropic / OpenAI / Ollama / LM Studio / DeepSeek / Zhipu / Kimi)公开 API 真实,Custom 走用户自填 + URL 校验** |
 | keyring 读失败的 fallback | 报清晰错误,不静默降级到环境变量 |
 | 切换 active 后已跑 run 不受影响 | 只影响新 spawn 的 mtd;已跑 run 用旧 env(进程独立) |
 

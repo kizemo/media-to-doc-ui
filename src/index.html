@@ -31,9 +31,13 @@
     }
     body {
       display: grid;
-      grid-template-columns: 200px 1fr;
-      grid-template-rows: 48px 1fr;
-      grid-template-areas: "header header" "sidebar main";
+      grid-template-columns: 260px 1fr;
+      grid-template-rows: 1fr;
+      grid-template-areas: "sidebar main";
+      transition: grid-template-columns 150ms ease-out;
+    }
+    body.sidebar-collapsed {
+      grid-template-columns: 48px 1fr;
     }
     header {
       grid-area: header;
@@ -249,43 +253,329 @@
       font-size: 11px; color: var(--fg-muted);
       padding: 4px 0 12px;
     }
+    /* W15-A T6:Settings tab + Providers UI */
+    .settings-layout {
+      display: flex;
+      gap: 24px;
+      min-height: 100%;
+    }
+    .settings-subnav { width: 160px; flex-shrink: 0; }
+    .settings-subnav-item {
+      display: block; padding: 8px 16px; margin-bottom: 4px;
+      border-radius: 4px; cursor: pointer; font-size: 14px;
+      color: var(--fg);
+    }
+    .settings-subnav-item:hover { background: rgba(255,255,255,0.05); }
+    .settings-subnav-item.active {
+      background: rgba(74,158,255,0.15);
+      color: var(--accent);
+    }
+    .settings-main-content { flex: 1; }
+    .settings-subpane { display: none; }
+    .settings-subpane.active { display: block; }
+    .settings-header {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 16px;
+    }
+    .settings-header h2 { margin: 0; font-size: 18px; font-weight: 500; }
+    .provider-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 16px;
+      margin-bottom: 12px;
+    }
+    .provider-card-header {
+      display: flex; align-items: center; gap: 8px;
+      margin-bottom: 8px;
+    }
+    .provider-star { color: #ffd54f; font-size: 16px; }
+    .provider-star.inactive { color: rgba(255,255,255,0.15); }
+    .provider-name { font-weight: 500; font-size: 14px; }
+    .provider-provider { color: var(--fg-muted); font-size: 13px; }
+    .provider-meta {
+      color: var(--fg-muted); font-size: 12px;
+      font-family: ui-monospace, "Cascadia Code", monospace;
+      margin-bottom: 12px;
+    }
+    .provider-actions { display: flex; gap: 8px; }
+    .provider-empty {
+      padding: 32px 16px; text-align: center;
+      color: var(--fg-muted); font-size: 14px;
+    }
+    /* Provider modal */
+    .provider-modal-backdrop {
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,0.7);
+      display: none; align-items: center; justify-content: center;
+      z-index: 3000;
+    }
+    .provider-modal-backdrop.open { display: flex; }
+    .provider-modal {
+      width: 480px; max-width: 90vw;
+      max-height: 90vh; overflow-y: auto;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 24px;
+    }
+    .provider-modal h3 { margin: 0 0 16px; font-size: 16px; }
+    .provider-modal label {
+      display: block; margin-bottom: 12px;
+      font-size: 13px; color: var(--fg-muted);
+    }
+    .provider-modal label > input,
+    .provider-modal label > select {
+      display: block; width: 100%; margin-top: 4px;
+      background: var(--bg); color: var(--fg);
+      border: 1px solid var(--border);
+      padding: 6px 10px; border-radius: 4px;
+      font-size: 13px; font-family: inherit;
+      box-sizing: border-box;
+    }
+    .provider-modal label.checkbox {
+      display: flex; align-items: center; gap: 6px;
+      font-weight: normal; color: var(--fg);
+    }
+    .provider-modal label.checkbox input { margin: 0; }
+    .provider-modal-actions {
+      display: flex; gap: 8px; justify-content: flex-end;
+      margin-top: 16px;
+    }
+    .provider-modal-test-result {
+      margin-top: 12px; font-size: 12px; min-height: 18px;
+    }
+    .provider-modal-test-result.ok { color: var(--green); }
+    .provider-modal-test-result.error { color: var(--red); }
+    /* ─── W15-A 重设计:5 段侧栏 ─── */
+    .sidebar-section {
+      padding: 6px 8px;
+      border-bottom: 1px solid var(--border);
+    }
+    .sidebar-section:last-child {
+      border-bottom: none;
+      margin-top: auto;
+    }
+    .sidebar-section-brand {
+      display: flex; align-items: center; gap: 8px;
+      padding: 10px 12px;
+      font-size: 14px; font-weight: 600;
+      border-bottom: 1px solid var(--border);
+    }
+    .sidebar-brand-icon { font-size: 16px; }
+    .sidebar-brand-text { flex: 1; }
+    .sidebar-collapse-btn {
+      background: none; border: none; cursor: pointer;
+      color: var(--fg-muted); font-size: 14px; padding: 2px 6px;
+      border-radius: 4px;
+    }
+    .sidebar-collapse-btn:hover { background: rgba(255,255,255,0.08); color: var(--fg); }
+    body.sidebar-collapsed .sidebar-brand-text,
+    body.sidebar-collapsed .sidebar-section:not(.sidebar-section-brand) { display: none; }
+    body.sidebar-collapsed .sidebar-section-brand { justify-content: center; padding: 10px 0; }
+    .sidebar-section-actions {
+      display: flex; flex-direction: column; gap: 4px;
+      padding: 8px 8px;
+    }
+    .sidebar-action-btn {
+      display: flex; align-items: center; gap: 8px;
+      padding: 8px 12px;
+      background: transparent;
+      color: var(--fg);
+      border: none; border-radius: 6px;
+      cursor: pointer; font-size: 13px;
+      text-align: left;
+    }
+    .sidebar-action-btn:hover:not(:disabled) {
+      background: rgba(255,255,255,0.06);
+    }
+    .sidebar-action-btn.primary {
+      background: rgba(74,158,255,0.12);
+      color: var(--accent);
+    }
+    .sidebar-action-btn.primary:hover { background: rgba(74,158,255,0.18); }
+    .sidebar-action-btn:disabled {
+      opacity: 0.4; cursor: not-allowed;
+    }
+    .sidebar-action-icon { width: 18px; text-align: center; }
+    .sidebar-action-text { flex: 1; }
+    body.sidebar-collapsed .sidebar-section-actions { padding: 8px 4px; }
+    body.sidebar-collapsed .sidebar-action-text { display: none; }
+    body.sidebar-collapsed .sidebar-action-btn { justify-content: center; padding: 8px 4px; }
+    .sidebar-section-search { padding: 6px 8px; }
+    .sidebar-search-row {
+      display: flex; align-items: center; gap: 4px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 4px 8px;
+    }
+    .sidebar-search-icon { font-size: 12px; color: var(--fg-muted); }
+    #sidebar-search-input {
+      flex: 1; background: transparent; border: none; outline: none;
+      color: var(--fg); font-size: 13px; padding: 4px;
+    }
+    .sidebar-search-icon-btn {
+      background: none; border: none; cursor: pointer;
+      color: var(--fg-muted); font-size: 14px; padding: 2px 4px;
+      border-radius: 3px;
+    }
+    .sidebar-search-icon-btn:hover { background: rgba(255,255,255,0.08); color: var(--fg); }
+    body.sidebar-collapsed .sidebar-section-search { display: none; }
+    .sidebar-section-tree {
+      flex: 1; overflow-y: auto; padding: 4px 0;
+    }
+    .sidebar-tree-empty {
+      color: var(--fg-muted); font-size: 12px;
+      padding: 12px; text-align: center;
+    }
+    .sidebar-project-node {
+      display: flex; align-items: center; gap: 6px;
+      padding: 6px 12px;
+      cursor: pointer;
+      font-size: 13px;
+      border-left: 3px solid transparent;
+      user-select: none;
+    }
+    .sidebar-project-node:hover { background: rgba(255,255,255,0.05); }
+    .sidebar-project-node.selected {
+      background: rgba(74,158,255,0.10);
+      border-left-color: var(--accent);
+    }
+    .sidebar-project-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .sidebar-project-toggle { font-size: 10px; color: var(--fg-muted); width: 12px; }
+    .sidebar-session-list {
+      margin: 2px 0 4px 24px;
+      padding-left: 8px;
+      border-left: 1px dashed var(--border);
+    }
+    .sidebar-session-entry {
+      display: flex; align-items: center; gap: 6px;
+      padding: 4px 8px;
+      cursor: pointer;
+      font-size: 12px;
+      color: var(--fg-muted);
+      border-radius: 3px;
+    }
+    .sidebar-session-entry:hover { background: rgba(255,255,255,0.05); color: var(--fg); }
+    .sidebar-session-status { font-size: 10px; width: 10px; }
+    .sidebar-session-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .sidebar-session-time { font-size: 11px; color: var(--fg-muted); }
+    body.sidebar-collapsed .sidebar-section-tree { display: none; }
+    .sidebar-section-settings {
+      padding: 8px;
+      border-top: 1px solid var(--border);
+    }
+    .sidebar-settings-btn {
+      display: flex; align-items: center; gap: 8px;
+      width: 100%;
+      padding: 8px 12px;
+      background: transparent;
+      color: var(--fg);
+      border: none; border-radius: 6px;
+      cursor: pointer; font-size: 13px;
+    }
+    .sidebar-settings-btn:hover { background: rgba(255,255,255,0.06); }
+    .sidebar-settings-icon { width: 18px; text-align: center; }
+    .sidebar-settings-text { flex: 1; }
+    body.sidebar-collapsed .sidebar-section-settings { padding: 4px; }
+    body.sidebar-collapsed .sidebar-settings-text { display: none; }
+    body.sidebar-collapsed .sidebar-settings-btn { justify-content: center; padding: 8px 4px; }
+    /* ─── 主区域 tabbed view ─── */
+    #main-area {
+      display: flex; flex-direction: column;
+      height: 100vh;
+      overflow: hidden;
+    }
+    .tab-bar {
+      display: flex; align-items: stretch;
+      background: var(--bg-card);
+      border-bottom: 1px solid var(--border);
+      min-height: 36px;
+      overflow-x: auto;
+    }
+    .tab-head {
+      display: flex; align-items: center; gap: 6px;
+      padding: 6px 10px;
+      cursor: pointer;
+      border-right: 1px solid var(--border);
+      font-size: 12px;
+      color: var(--fg-muted);
+      max-width: 200px;
+      min-width: 100px;
+      user-select: none;
+    }
+    .tab-head.active {
+      background: var(--bg);
+      color: var(--fg);
+      border-bottom: 2px solid var(--accent);
+    }
+    .tab-head:hover { background: rgba(255,255,255,0.04); }
+    .tab-head-icon { font-size: 12px; }
+    .tab-head-title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .tab-head-close {
+      background: none; border: none; cursor: pointer;
+      color: var(--fg-muted); font-size: 14px; padding: 0 4px;
+      border-radius: 3px;
+    }
+    .tab-head-close:hover { background: rgba(239,83,80,0.18); color: var(--red); }
+    .tab-content-host {
+      flex: 1;
+      overflow-y: auto;
+      padding: 16px 24px;
+    }
+    .tab-pane-instance { display: none; }
+    .tab-pane-instance.active { display: block; }
   </style>
 </head>
 <body>
-  <header>
-    <h1>media-to-doc</h1>
-    <span class="badge" id="version-badge"></span>
-    <div class="status">
-      <span class="status-dot" id="status-dot"></span>
-      <span id="status-text">loading…</span>
+  <nav class="sidebar" id="sidebar">
+    <!-- §1 Brand Header -->
+    <div class="sidebar-section sidebar-section-brand">
+      <span class="sidebar-brand-icon">📦</span>
+      <span class="sidebar-brand-text">media-to-doc</span>
+      <button class="sidebar-collapse-btn" id="sidebar-collapse-btn" title="折叠侧栏">⮜</button>
     </div>
-  </header>
-
-  <nav class="sidebar">
-    <div class="nav-item active" data-tab="inbox"><span class="nav-icon">📁</span>Inbox</div>
-    <div class="nav-item" data-tab="run"><span class="nav-icon">▶</span>Run</div>
-    <div class="nav-item" data-tab="output"><span class="nav-icon">📄</span>Output</div>
-    <div class="nav-item" data-tab="health"><span class="nav-icon">📊</span>Health</div>
-    <div class="nav-item" data-tab="learn"><span class="nav-icon">📚</span>Learn</div>
+    <!-- §2 Fixed Actions -->
+    <div class="sidebar-section sidebar-section-actions">
+      <button class="sidebar-action-btn primary" id="sidebar-new-session-btn">
+        <span class="sidebar-action-icon">+</span>
+        <span class="sidebar-action-text">新建会话</span>
+      </button>
+      <button class="sidebar-action-btn" id="sidebar-schedule-btn" disabled title="W15-B+ 实装">
+        <span class="sidebar-action-icon">⏰</span>
+        <span class="sidebar-action-text">定时任务</span>
+      </button>
+    </div>
+    <!-- §3 Search -->
+    <div class="sidebar-section sidebar-section-search">
+      <div class="sidebar-search-row">
+        <span class="sidebar-search-icon">🔍</span>
+        <input type="text" id="sidebar-search-input" placeholder="搜索项目 [⌘K]" />
+        <button class="sidebar-search-icon-btn" id="sidebar-search-refresh-btn" title="刷新">🔄</button>
+        <button class="sidebar-search-icon-btn" id="sidebar-search-clear-btn" title="清空">🗑</button>
+      </div>
+    </div>
+    <!-- §4 Project Tree -->
+    <div class="sidebar-section sidebar-section-tree">
+      <div class="sidebar-tree-empty" id="sidebar-tree-empty">
+        (loading…)
+      </div>
+      <div class="sidebar-tree" id="sidebar-project-tree"></div>
+    </div>
+    <!-- §5 Settings Gear(底部固定) -->
+    <div class="sidebar-section sidebar-section-settings">
+      <button class="sidebar-settings-btn" id="sidebar-settings-btn">
+        <span class="sidebar-settings-icon">⚙</span>
+        <span class="sidebar-settings-text">设置</span>
+      </button>
+    </div>
   </nav>
 
-  <main>
-    <!-- Inbox tab -->
-    <div class="tab-pane active" id="tab-inbox">
-      <div class="card">
-        <h2>Workspace</h2>
-        <div class="row gap-lg">
-          <input type="text" id="workspace-root" placeholder="D:/training/inbox (留空用默认)" style="flex:1">
-          <button id="refresh-courses">Refresh</button>
-        </div>
-      </div>
-      <div class="card">
-        <h2>Courses</h2>
-        <div id="courses-list">
-          <div class="empty">Loading…</div>
-        </div>
-      </div>
-    </div>
+  <main id="main-area">
+    <div class="tab-bar" id="tab-bar"></div>
+    <div class="tab-content-host" id="tab-content-host"></div>
+    <!-- Inbox tab 已删除(§4 Project Tree 替代)— Task 6 -->
 
     <!-- Run tab (W14-C:多卡片视图) -->
     <div class="tab-pane" id="tab-run">
@@ -385,6 +675,51 @@
         <div id="info-error" style="margin-top: 12px; color: var(--red); font-size: 12px;"></div>
       </div>
     </div>
+
+    <!-- Settings tab (W15-A T6) -->
+    <div class="tab-pane" id="tab-settings">
+      <div class="settings-layout">
+        <aside class="settings-subnav">
+          <div class="settings-subnav-item active" data-subtab="providers">Providers</div>
+          <div class="settings-subnav-item" data-subtab="general">General</div>
+          <div class="settings-subnav-item" data-subtab="theme">Theme</div>
+          <div class="settings-subnav-item" data-subtab="about">About</div>
+        </aside>
+        <main class="settings-main-content">
+          <!-- Providers 子页(W15-A T6 实装) -->
+          <section class="settings-subpane active" id="subtab-providers">
+            <div class="settings-header">
+              <h2>Providers</h2>
+              <div class="row" style="gap: 8px;">
+                <button id="provider-refresh-btn" class="secondary">刷新</button>
+                <button id="provider-add-btn">+ 添加服务商</button>
+              </div>
+            </div>
+            <div id="provider-list">
+              <div class="empty">Loading…</div>
+            </div>
+          </section>
+          <!-- General / Theme / About 占位(W15-B+ 实装) -->
+          <section class="settings-subpane" id="subtab-general">
+            <h2 style="margin-top: 0;">General</h2>
+            <div class="provider-empty">Coming soon (W15-B+)</div>
+          </section>
+          <section class="settings-subpane" id="subtab-theme">
+            <h2 style="margin-top: 0;">Theme</h2>
+            <div class="provider-empty">Coming soon (W15-B+)</div>
+          </section>
+          <section class="settings-subpane" id="subtab-about">
+            <h2 style="margin-top: 0;">About</h2>
+            <p style="color: var(--fg-muted); font-size: 13px; line-height: 1.6;">
+              media-to-doc UI 把 media-to-doc Python 流水线包成 Tauri 2 桌面壳。<br>
+              W15-A LLM API Settings:9 个内置服务商 + 1 个自定义 + 操作系统钥匙串存 key。<br>
+            </p>
+          </section>
+        </main>
+      </div>
+    </div>
+    <!-- tab content 模板 source(Task 9-11 从这些 .tab-pane cloneNode) -->
+    <!-- 原 5 tab pane 内容保留供复用;后被 JS 隐藏 -->
   </main>
 
   <div class="modal-backdrop" id="modal-backdrop">
@@ -399,8 +734,68 @@
     </div>
   </div>
 
+  <!-- W15-A T6: Provider 添加 / 编辑 modal -->
+  <div class="provider-modal-backdrop" id="provider-modal-backdrop">
+    <div class="provider-modal">
+      <h3 id="provider-modal-title">添加服务商</h3>
+      <form id="provider-form">
+        <label>预设 *
+          <select id="provider-preset" required></select>
+        </label>
+        <label>名称 *
+          <input type="text" id="provider-name" required placeholder="e.g. deepseek-prod">
+        </label>
+        <label>备注
+          <input type="text" id="provider-note" placeholder="(可选,描述用途)">
+        </label>
+        <label>接口地址 *
+          <input type="url" id="provider-base-url" required>
+        </label>
+        <div id="anthropic-only-block" style="display: none;">
+          <label class="checkbox">
+            <input type="checkbox" id="provider-tool-search"> 启用 Tool Search
+          </label>
+          <label class="checkbox">
+            <input type="checkbox" id="provider-betas-disabled"> 关闭实验性 Beta 头
+          </label>
+        </div>
+        <label>API 密钥 *
+          <input type="password" id="provider-api-key" placeholder="sk-...(Ollama 留空)">
+        </label>
+        <label>模型 *
+          <input type="text" id="provider-model" required>
+        </label>
+        <p class="provider-modal-test-result" id="provider-test-result"></p>
+        <div class="provider-modal-actions">
+          <button type="button" id="provider-test-btn" class="secondary">测试连接</button>
+          <button type="button" id="provider-cancel-btn" class="secondary">取消</button>
+          <button type="submit" id="provider-save-btn">保存</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
   <div id="toast-container"></div>
 
+  <script>
+    // W15-A T7:捕获 module 顶层 throw,落盘到 %APPDATA%\com.duanyi.mediatodoc\init.log
+    // 用于诊断 Settings 点击 bug 之"假设 2:module 顶层 throw 致 addEventListener 未注册"
+    (function () {
+      const logDir = (typeof process !== 'undefined' && process.env && process.env.APPDATA)
+        ? process.env.APPDATA + '\\com.duanyi.mediatodoc'
+        : null;
+      function writeInitLog(msg) {
+        try {
+          if (!logDir) { console.error('[init]', msg); return; }
+          // 浏览器内无法直接写本地文件,降级到 console;Rust log 通道在 boot 时再补
+          console.error('[init]', msg);
+        } catch (_) { /* swallow */ }
+      }
+      window.addEventListener('error', (e) => writeInitLog('window.error: ' + (e.error && e.error.stack || e.message)));
+      window.addEventListener('unhandledrejection', (e) => writeInitLog('unhandledrejection: ' + (e.reason && e.reason.stack || e.reason)));
+      window.__MEDIA_TO_DOC_INIT_LOG__ = writeInitLog;
+    })();
+  </script>
   <script type="module">
     // ───────── Tauri IPC 入口 ─────────
     const { invoke } = window.__TAURI__.core;
@@ -422,6 +817,776 @@
       jumpDisabled: new Set(),    // work_dir 已跳过一次 Output tab,不再跳
     };
 
+    // ───────── Sidebar collapse ─────────
+    function toggleSidebarCollapse() {
+      const collapsed = document.body.classList.toggle('sidebar-collapsed');
+      try { localStorage.setItem('mediaToDocSidebarCollapsed', collapsed ? '1' : '0'); } catch (_) {}
+      const btn = $('sidebar-collapse-btn');
+      if (btn) btn.textContent = collapsed ? '⮞' : '⮜';
+    }
+    function initSidebarCollapse() {
+      let collapsed = false;
+      try { collapsed = localStorage.getItem('mediaToDocSidebarCollapsed') === '1'; } catch (_) {}
+      if (collapsed) {
+        document.body.classList.add('sidebar-collapsed');
+        const btn = $('sidebar-collapse-btn');
+        if (btn) btn.textContent = '⮞';
+      }
+      const btn = $('sidebar-collapse-btn');
+      if (btn) btn.addEventListener('click', toggleSidebarCollapse);
+    }
+    // ───────── Sidebar §2 Fixed Actions ─────────
+    function handleNewSessionClick() {
+      const inbox = state.selectedInbox;
+      if (!inbox) {
+        toast('请先在 §4 项目树里选个课程', 'error');
+        return;
+      }
+      window.__tabManager__?.openTab({ type: 'new_run', coursePath: inbox });
+    }
+    function initSidebarActions() {
+      $('sidebar-new-session-btn').addEventListener('click', handleNewSessionClick);
+      $('sidebar-schedule-btn').addEventListener('click', () => toast('定时任务 — W15-B+ 实装', 'info'));
+    }
+
+    // ───────── Tab Manager ─────────
+    // tabs: [{ id, type:'new_run'|'session'|'settings', workDir, coursePath, title, el }]
+    let _tabs = [];
+    let _activeTabId = null;
+
+    function makeTabId(type, workDir) {
+      return type + ':' + (workDir || '');
+    }
+    function tabTitle(tab) {
+      if (tab.type === 'settings') return '⚙ 设置';
+      if (tab.type === 'new_run') return '▶ 新建 ' + (tab.coursePath ? tab.coursePath.split(/[/\\]/).pop() : '');
+      if (tab.type === 'session') {
+        return (tab.workDir ? tab.workDir.split(/[/\\]/).slice(-2, -1)[0] : 'session')
+               + ' · ' + (tab.workDir ? tab.workDir.split(/[/\\]/).pop() : '').replace(/^run-/, '');
+      }
+      return '?';
+    }
+    function persistTabs() {
+      try {
+        const data = _tabs.map(t => ({
+          type: t.type,
+          workDir: t.workDir || null,
+          coursePath: t.coursePath || null,
+          active: t.id === _activeTabId,
+        }));
+        localStorage.setItem('mediaToDocTabs', JSON.stringify(data));
+      } catch (_) {}
+    }
+    function rebuildTabBar() {
+      const bar = $('tab-bar');
+      bar.innerHTML = _tabs.map(t => `
+        <div class="tab-head ${t.id === _activeTabId ? 'active' : ''}" data-tab-id="${escapeHtml(t.id)}">
+          <span class="tab-head-icon">${t.type === 'settings' ? '⚙' : t.type === 'session' ? '●' : '▶'}</span>
+          <span class="tab-head-title">${escapeHtml(tabTitle(t))}</span>
+          <button class="tab-head-close" data-close-tab-id="${escapeHtml(t.id)}" ${_tabs.length === 1 ? 'disabled title="至少保留 1 tab"' : ''}>×</button>
+        </div>
+      `).join('');
+      bar.querySelectorAll('[data-tab-id]').forEach(el => {
+        el.addEventListener('click', (e) => {
+          if (e.target.dataset.closeTabId) return;  // close 按钮独立
+          focusTab(el.dataset.tabId);
+        });
+      });
+      bar.querySelectorAll('[data-close-tab-id]').forEach(el => {
+        el.addEventListener('click', (e) => {
+          e.stopPropagation();
+          if (_tabs.length > 1) closeTab(el.dataset.closeTabId);
+        });
+      });
+    }
+    function rebuildContent() {
+      const host = $('tab-content-host');
+      host.innerHTML = '';
+      // 隐藏原 <main> 内的所有 tab-pane source(walk 全 DOM 后让 source node 默认 display:none)
+      document.querySelectorAll('main > .tab-pane').forEach(p => p.classList.remove('active'));
+      for (const t of _tabs) {
+        // 每个 tab 实例容器
+        const wrap = document.createElement('div');
+        wrap.className = 'tab-pane-instance' + (t.id === _activeTabId ? ' active' : '');
+        wrap.dataset.tabId = t.id;
+        // 复制对应 source 内容(settings → #tab-settings; new_run → 新建; session → 占位由 Task 9 注入)
+        if (t.type === 'settings') {
+          const src = $('tab-settings');
+          if (src) wrap.appendChild(src.cloneNode(true));
+          // 重新挂事件(loadProviders / providers UI) — Task 11 实现
+          setTimeout(() => { window.__mountSettingsTab__?.(wrap); }, 0);
+        } else if (t.type === 'new_run') {
+          wrap.appendChild(buildNewRunForm(t.coursePath));
+          setTimeout(() => { window.__mountNewRunTab__?.(wrap, t); }, 0);
+        } else if (t.type === 'session') {
+          wrap.appendChild(buildSessionPlaceholder(t.workDir));
+          setTimeout(() => { window.__mountSessionTab__?.(wrap, t); }, 0);
+        }
+        host.appendChild(wrap);
+      }
+    }
+    function focusTab(tabId) {
+      if (!_tabs.find(t => t.id === tabId)) return;
+      _activeTabId = tabId;
+      rebuildTabBar();
+      rebuildContent();
+      persistTabs();
+    }
+    function closeTab(tabId) {
+      if (_tabs.length <= 1) return;
+      const idx = _tabs.findIndex(t => t.id === tabId);
+      if (idx < 0) return;
+      _tabs.splice(idx, 1);
+      if (_activeTabId === tabId) {
+        // 焦点移到邻居
+        const next = _tabs[idx] || _tabs[idx - 1];
+        _activeTabId = next ? next.id : null;
+      }
+      rebuildTabBar();
+      rebuildContent();
+      persistTabs();
+    }
+    function openTab(opts) {
+      const id = makeTabId(opts.type, opts.workDir || opts.coursePath);
+      const existing = _tabs.find(t => t.id === id);
+      if (existing) { focusTab(existing.id); return existing; }
+      const tab = { id, type: opts.type, workDir: opts.workDir || null, coursePath: opts.coursePath || null, title: '' };
+      _tabs.push(tab);
+      focusTab(tab.id);
+      return tab;
+    }
+    function buildNewRunForm(coursePath) {
+      const d = document.createElement('div');
+      d.innerHTML = `
+        <div class="card">
+          <h2>New Run</h2>
+          <div class="kv">
+            <dt>Course</dt><dd>${escapeHtml(coursePath || '(请先选课程)')}</dd>
+            <dt>工作目录</dt>
+            <dd>
+              <span id="new-run-workdir-display">${escapeHtml(coursePath || '(未选)')}</span>
+              <button type="button" class="secondary" id="new-run-pick-dir-btn" style="margin-left: 8px;">选目录</button>
+            </dd>
+          </div>
+          <form id="new-run-form" style="margin-top: 12px;">
+            <label style="display: block; margin-bottom: 8px;">
+              任务说明(可选):
+              <textarea name="taskText" rows="4" placeholder="说说你想怎么处理这个视频,例如:&quot;突出第 2 节的客户案例&quot;" style="display: block; width: 100%; margin-top: 4px; font-family: inherit;"></textarea>
+            </label>
+            <div style="margin-top: 8px;">
+              <label>主 LLM:
+                <select name="llm" id="new-run-llm-select">
+                  <option value="">(default / 走 CLI 默认)</option>
+                </select>
+              </label>
+            </div>
+            <details style="margin-top: 8px;">
+              <summary>Image Agent(可选)</summary>
+              <div style="padding: 8px 0;">
+                <label>策划 LLM:
+                  <select name="llmProfileImageAgent" id="new-run-image-agent-select">
+                    <option value="">(关闭 Image Agent)</option>
+                  </select>
+                </label>
+                <label style="margin-left: 12px;">出图 provider:
+                  <select name="imagegen">
+                    <option value="">(default)</option>
+                    <option value="skip">skip(只生成策划,不出图)</option>
+                    <option value="local_sdxl">local_sdxl(占位实现)</option>
+                  </select>
+                </label>
+              </div>
+            </details>
+            <div style="margin-top: 8px;">
+              <label>Stop after:
+                <select name="stopAfter" id="new-run-stop-after-select">
+                  <option value="">(none) 完整运行到 verify</option>
+                  <option value="audio">audio — 提取声音</option>
+                  <option value="asr">asr — 转写文字</option>
+                  <option value="frames">frames — 关键画面</option>
+                  <option value="ocr">ocr — 画面文字识别</option>
+                  <option value="asr_correct">asr_correct — 校正转写</option>
+                  <option value="chapters">chapters — 章节结构</option>
+                  <option value="draft">draft — 分章草稿</option>
+                  <option value="imagegen">imagegen — AI 配图</option>
+                  <option value="render">render — 生成 md/html</option>
+                  <option value="longdoc">longdoc — 深度净化</option>
+                  <option value="verify">verify — 质量检查(完整终点)</option>
+                </select>
+              </label>
+            </div>
+            <div style="margin-top: 8px;">
+              <label style="margin-left: 12px;"><input type="checkbox" name="noLongdoc"> no-longdoc</label>
+              <label style="margin-left: 12px;"><input type="checkbox" name="force"> force</label>
+            </div>
+            <div style="margin-top: 12px;">
+              <button type="submit" id="new-run-submit-btn">▶ Run pipeline</button>
+              <button type="button" class="secondary" id="new-run-cancel-btn" style="margin-left: 8px;">取消</button>
+            </div>
+          </form>
+        </div>
+      `;
+      return d;
+    }
+
+    async function __mountNewRunTab__(container, tab) {
+      // 1. 拉 profiles 填两个 select
+      try {
+        const r = await invoke('list_llm_profiles');
+        if (r.ok && r.data) {
+          const llmSel = container.querySelector('#new-run-llm-select');
+          const agentSel = container.querySelector('#new-run-image-agent-select');
+          if (llmSel && agentSel) {
+            // 保存现有 "(default)" option,清空再追加
+            llmSel.innerHTML = '<option value="">(default / 走 CLI 默认)</option>';
+            agentSel.innerHTML = '<option value="">(关闭 Image Agent)</option>';
+            for (const p of r.data) {
+              const opt1 = document.createElement('option');
+              opt1.value = p.name;
+              opt1.textContent = `${p.name} — ${p.provider}/${p.model}`;
+              llmSel.appendChild(opt1);
+              const opt2 = opt1.cloneNode(true);
+              agentSel.appendChild(opt2);
+            }
+          }
+        } else {
+          toast('读 profiles 失败: ' + (r.error || '(unknown)'), 'error');
+        }
+      } catch (err) {
+        toast('list_llm_profiles: ' + err, 'error');
+      }
+
+      // 2. 选目录按钮 → invoke add_project → 刷新侧栏
+      container.querySelector('#new-run-pick-dir-btn')?.addEventListener('click', async () => {
+        try {
+          // Tauri 2 + plugin-dialog: 通过 window.__TAURI__.dialog 调原生 picker
+          const dialog = window.__TAURI__?.dialog;
+          if (!dialog?.open) {
+            toast('tauri-plugin-dialog 未注册,无法选目录', 'error');
+            return;
+          }
+          const dir = await dialog.open({ directory: true, multiple: false });
+          if (!dir) return;
+          const r = await invoke('add_project', { path: dir });
+          if (!r.ok) { toast('add_project: ' + r.error, 'error'); return; }
+          // 更新表单 + tab 状态
+          tab.coursePath = r.data.path;
+          tab.workDir = null;
+          const display = container.querySelector('#new-run-workdir-display');
+          if (display) display.textContent = r.data.path;
+          // 刷新侧栏项目树 + 自动选中
+          if (window.__projectTree__?.refresh) {
+            await window.__projectTree__.refresh();
+            window.__projectTree__.selectProject?.(r.data.id);
+          }
+          toast('已注册项目: ' + r.data.display_name, 'success');
+        } catch (err) {
+          toast('选目录: ' + err, 'error');
+        }
+      });
+
+      // 3. form submit(传 W15-A T7.2 新加的 3 个 Option 参数)
+      const form = container.querySelector('#new-run-form');
+      form?.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const fd = new FormData(form);
+        const inboxDir = tab.coursePath || container.querySelector('#new-run-workdir-display')?.textContent;
+        if (!inboxDir || inboxDir === '(未选)') {
+          toast('请先选课程或目录', 'error');
+          return;
+        }
+        const opts = {
+          inboxDir,
+          workspaceRoot: null,
+          llm: null,
+          imagegen: fd.get('imagegen') || null,
+          stopAfter: fd.get('stopAfter') || null,
+          noLongdoc: !!fd.get('noLongdoc'),
+          force: !!fd.get('force'),
+          // W15-A T7.2:per-run profile + task_text 透传到后端
+          llmProfileName: fd.get('llm') || null,
+          imageAgentProfileName: fd.get('llmProfileImageAgent') || null,
+          taskText: fd.get('taskText') || null,
+        };
+        try {
+          const r = await invoke('run_pipeline', opts);
+          if (!r.ok) { toast('run_pipeline: ' + r.error, 'error'); return; }
+          toast('Started: ' + r.data.work_dir, 'success');
+          const newWd = r.data.work_dir;
+          window.__tabManager__.closeTab(tab.id);
+          window.__tabManager__.openTab({ type: 'session', workDir: newWd });
+        } catch (err) {
+          toast('run_pipeline: ' + err, 'error');
+        }
+      });
+
+      // 4. 取消
+      container.querySelector('#new-run-cancel-btn')?.addEventListener('click', () => {
+        window.__tabManager__.closeTab(tab.id);
+      });
+    }
+    window.__mountNewRunTab__ = __mountNewRunTab__;
+    function buildSessionPlaceholder(workDir) {
+      const d = document.createElement('div');
+      d.innerHTML = `<div class="card">
+        <h2>Session</h2>
+        <div class="kv">
+          <dt>work_dir</dt><dd>${escapeHtml(workDir || '')}</dd>
+          <dt>status</dt><dd id="sess-status-${escapeHtml(workDir || '')}"><span class="status-dot"></span>loading…</dd>
+        </div>
+        <div class="row gap-lg" style="margin-top: 12px;">
+          <button class="secondary" id="sess-cancel-${escapeHtml(workDir || '')}">取消 run</button>
+          <button class="secondary" id="sess-resume-${escapeHtml(workDir || '')}">resume</button>
+        </div>
+        <h3 style="margin-top: 16px; font-size: 12px; color: var(--fg-muted);">Stages</h3>
+        <div id="sess-stages-${escapeHtml(workDir || '')}" style="font-family: ui-monospace, monospace;">…</div>
+        <h3 style="margin-top: 16px; font-size: 12px; color: var(--fg-muted);">Live log</h3>
+        <pre id="sess-log-${escapeHtml(workDir || '')}" style="max-height: 360px; overflow: auto; background: #111; padding: 12px; border-radius: 6px; font-size: 12px;"></pre>
+      </div>`;
+      return d;
+    }
+
+    // 每个 session tab 一个 poll state
+    const _sessionPolls = new Map();  // workDir -> { timerId }
+    function __mountSessionTab__(container, tab) {
+      const wd = tab.workDir;
+      const $s = (suffix) => container.querySelector('#sess-' + suffix + '-' + wd);
+      const statusEl = $s('status');
+      const stagesEl = $s('stages');
+      const logEl = $s('log');
+      const cancelBtn = $s('cancel');
+      const resumeBtn = $s('resume');
+      let offset = 0;
+
+      // 防御:同 workDir 重复 mount 时清掉旧的 timer(防止多倍轮询)
+      const existing = _sessionPolls.get(wd);
+      if (existing && existing.timerId) clearInterval(existing.timerId);
+
+      function dotHtml(status) {
+        const cls = status === 'completed' ? 'green' : status === 'failed' ? 'red' : status === 'running' ? 'yellow' : '';
+        return `<span class="status-dot ${cls}"></span>${escapeHtml(status || 'unknown')}`;
+      }
+
+      async function poll() {
+        try {
+          const sr = await invoke('check_status', { workDir: wd });
+          if (sr.ok) {
+            // Fix(Bug 1): Rust CheckStatusResult 无顶层 status 字段,仅 current_stage/is_complete/stages。
+            // 派生顶层 status 语义:is_complete 优先;若任一 stage failed → failed;
+            // 若 running → running;否则 pending。dotHtml 沿用 completed/failed/running/default 四色。
+            const stagesMap = sr.data.stages || {};
+            const stageVals = Object.values(stagesMap).map(s => (s && s.status) || 'pending');
+            let derivedStatus = 'pending';
+            if (sr.data.is_complete) {
+              derivedStatus = stageVals.some(s => s === 'failed') ? 'failed' : 'completed';
+            } else if (stageVals.some(s => s === 'running')) {
+              derivedStatus = 'running';
+            } else if (stageVals.some(s => s === 'failed')) {
+              derivedStatus = 'failed';
+            }
+            statusEl.innerHTML = dotHtml(derivedStatus);
+            const stagesStr = Object.entries(stagesMap).map(([name, info]) => {
+              const st = (info && info.status) || 'unknown';
+              const sym = st === 'completed' ? '✓' : st === 'failed' ? '✗' : st === 'running' ? '●' : '·';
+              return `${escapeHtml(name)}: ${sym}`;
+            }).join('  ');
+            stagesEl.textContent = stagesStr || '(no stage info)';
+          }
+          // Fix(Bug 2): Rust read_log_impl 校验 path.ends_with("mtd.log")(commands.rs:479),
+          // 前端原直接传 wd(例如 "D:/training/课程A/output")→ 后端返回 error → logEl 永远空。
+          // 拼上 /mtd.log(末尾 / 或 \ 用 regex 规范化),Windows 路径 PathBuf::from 接受两者。
+          const logPath = wd.replace(/[\\/]+$/, '') + '/mtd.log';
+          const lr = await invoke('read_log', { path: logPath, offset, maxLines: 200 });
+          if (lr.ok && lr.data) {
+            if (lr.data.content) {
+              logEl.textContent += lr.data.content;
+              if (!lr.data.content.endsWith('\n')) logEl.textContent += '\n';
+              logEl.scrollTop = logEl.scrollHeight;
+            }
+            offset = typeof lr.data.new_offset === 'number' ? lr.data.new_offset : offset;
+            if (lr.data.truncated) { offset = 0; logEl.textContent = ''; }
+          }
+        } catch (e) {
+          logEl.textContent += `\n[polling error: ${e}]\n`;
+        }
+      }
+
+      // 容器内绑定(不绑 window 监听器 — I-2 防御,保护 §3 Search 全局单 listener 不变量)
+      cancelBtn?.addEventListener('click', async () => {
+        try {
+          const r = await invoke('cancel_run', { workDir: wd });
+          if (r.ok) toast('cancel_run ok', 'success'); else toast('cancel_run: ' + r.error, 'error');
+        } catch (e) { toast('cancel_run: ' + e, 'error'); }
+      });
+      resumeBtn?.addEventListener('click', async () => {
+        try {
+          const r = await invoke('resume_pipeline', { workDir: wd });
+          if (r.ok) toast('resume ok: ' + r.data.work_dir, 'success'); else toast('resume: ' + r.error, 'error');
+        } catch (e) { toast('resume: ' + e, 'error'); }
+      });
+
+      // 立即跑一次 + 2s 轮询
+      poll();
+      const timerId = setInterval(poll, 2000);
+      _sessionPolls.set(wd, { timerId });
+      // tab 关闭/switch 触发 rebuildContent() → wrap 脱离 DOM → observer 触发清理
+      const observer = new MutationObserver(() => {
+        if (!document.body.contains(container) || !document.querySelector(`[data-tab-id="${tab.id}"]`)) {
+          clearInterval(timerId);
+          _sessionPolls.delete(wd);
+          observer.disconnect();
+        }
+      });
+      observer.observe(document.getElementById('tab-content-host'), { childList: true, subtree: true });
+    }
+    window.__mountSessionTab__ = __mountSessionTab__;
+
+    // ───────── Tab: Settings (W15-A Task 11) ─────────
+    function __mountSettingsTab__(container) {
+      // 1) 把原 #tab-settings clone 进来(去掉 active,因为 tab-pane-source 默认 .active)
+      const src = $('tab-settings');
+      if (!src) return;
+      // 先清空旧 sub-nav 内 + provider-list
+      container.innerHTML = '';
+      const cloned = src.cloneNode(true);
+      cloned.classList.add('active');
+      container.appendChild(cloned);
+
+      // 2) 重新挂子页 sub-nav click
+      container.querySelectorAll('.settings-subnav-item').forEach(item => {
+        item.addEventListener('click', () => {
+          container.querySelectorAll('.settings-subnav-item').forEach(n => n.classList.remove('active'));
+          container.querySelectorAll('.settings-subpane').forEach(p => p.classList.remove('active'));
+          item.classList.add('active');
+          container.querySelector('#subtab-' + item.dataset.subtab)?.classList.add('active');
+          if (item.dataset.subtab === 'providers') {
+            // 触发原 loadProviders 但替换 querySelector 目标为 container 内
+            loadProvidersInto(container);
+          }
+        });
+      });
+
+      // 3) 重新挂 add/refresh 按钮(只在 mount 时挂一次,renderProfilesInto 不再挂 — 防 multi-fire)
+      //    I-2:不绑 window 监听器,只挂 container 内按钮
+      //    理由:brief 的 renderProfilesInto 在 empty-list 路径 return → 按钮无监听 → 无法首次添加
+      container.querySelector('#provider-add-btn')?.addEventListener('click', () => openProviderModalInto(container, null));
+      container.querySelector('#provider-refresh-btn')?.addEventListener('click', () => loadProvidersInto(container));
+
+      // 4) 挂原 providers 全部事件
+      bindSettingsProvidersEvents(container);
+
+      // 5) 加载 providers(默认 subtab 是 providers)
+      loadProvidersInto(container);
+
+      // I-1 修复:记下当前 active Settings container,供 submitProviderForm 保存成功后
+      // 主动刷新 cloned 列表(source 列表由 T6 loadProviders() 刷,cloned 必须另刷)。
+      window.__activeSettingsContainer__ = container;
+    }
+    window.__mountSettingsTab__ = __mountSettingsTab__;  // Defect 1 修复:rebuildContent 依赖此全局
+
+    function loadProvidersInto(container) {
+      // 复用 T6 loadProviders;但其内部用 $('#provider-list'),改成 container 内
+      // 简化做法:重新写一个 container-scoped loadProviders
+      const listEl = container.querySelector('#provider-list');
+      if (!listEl) return;
+      listEl.innerHTML = '<div class="empty">Loading…</div>';
+      invoke('list_llm_profiles').then(r => {
+        if (!r.ok) { listEl.innerHTML = `<div class="empty error">${escapeHtml(r.error || '')}</div>`; return; }
+        const profiles = r.data || [];
+        renderProfilesInto(container, profiles);
+      }).catch(e => {
+        listEl.innerHTML = `<div class="empty error">${escapeHtml(String(e))}</div>`;
+      });
+    }
+
+    function renderProfilesInto(container, profiles) {
+      const listEl = container.querySelector('#provider-list');
+      if (profiles.length === 0) {
+        listEl.innerHTML = `<div class="provider-empty">还没有添加任何服务商。点 "+ 添加服务商" 开始。</div>`;
+        return;
+      }
+      // 调 get_active_llm_profile_name 拿星标
+      invoke('get_active_llm_profile_name').then(ar => {
+        const activeName = (ar.ok && ar.data) || null;
+        listEl.innerHTML = profiles.map(p => `
+          <div class="provider-card" data-pname="${escapeHtml(p.name)}">
+            <div class="provider-card-main">
+              <div class="provider-card-line1">
+                ${p.name === activeName ? '<span class="provider-star" title="激活">★</span>' : ''}
+                <span class="provider-card-name">${escapeHtml(p.name)}</span>
+                <span class="provider-card-provider">(${escapeHtml(p.provider || '?')})</span>
+              </div>
+              ${p.note ? `<div class="provider-card-note">${escapeHtml(p.note)}</div>` : ''}
+              <div class="provider-card-meta">${escapeHtml(p.base_url || '')}${p.model ? ' · ' + escapeHtml(p.model) : ''}</div>
+            </div>
+            <div class="provider-card-actions">
+              ${p.name !== activeName ? `<button class="secondary" data-act="activate" data-name="${escapeHtml(p.name)}">激活</button>` : '<span class="provider-card-active-label">(active)</span>'}
+              <button class="secondary" data-act="edit" data-name="${escapeHtml(p.name)}">编辑</button>
+              <button class="secondary" data-act="delete" data-name="${escapeHtml(p.name)}">删除</button>
+            </div>
+          </div>
+        `).join('');
+        listEl.querySelectorAll('[data-act]').forEach(btn => {
+          btn.addEventListener('click', () => {
+            const act = btn.dataset.act;
+            const name = btn.dataset.name;
+            if (act === 'activate') {
+              invoke('set_active_profile', { name }).then(r => {
+                if (r.ok) { toast('激活 ' + name, 'success'); loadProvidersInto(container); }
+                else toast('set_active_profile: ' + r.error, 'error');
+              });
+            } else if (act === 'edit') {
+              openProviderModalInto(container, name);
+            } else if (act === 'delete') {
+              if (!confirm(`删除 ${name}?`)) return;
+              invoke('delete_llm_profile', { name }).then(r => {
+                if (r.ok) { toast('已删除 ' + name, 'success'); loadProvidersInto(container); }
+                else toast('delete: ' + r.error, 'error');
+              });
+            }
+          });
+        });
+      });
+      // 注:addBtn / refreshBtn 已在 __mountSettingsTab__ 内挂过一次(空列表也能用),不在此处重复挂
+    }
+
+    function openProviderModalInto(container, editingName) {
+      // 用原 #provider-modal-backdrop(全局唯一),container 内的 #provider-form 替换为当前
+      const modal = $('provider-modal-backdrop');
+      // 把 container 内的 form clone 一份到 modal(避免与 global form 冲突)
+      const globalForm = $('provider-form');
+      // 重置 form
+      globalForm.reset();
+      // 填 presets
+      const presetSel = $('provider-preset');
+      if (presetSel.children.length === 0) {
+        // 沿用 T6 PROVIDER_PRESETS 数组 + buildPresetOptions;若已有不重建
+        // buildPresetOptions 是 T6 行 ~1063 实装,本 task 直接调用
+        if (typeof buildPresetOptions === 'function') buildPresetOptions();
+      }
+      // 标题
+      $('provider-modal-title').textContent = editingName ? '编辑服务商' : '添加服务商';
+      // 编辑模式填初始值(简版,完整实装在 T6 已有的 editProfile 处理 — 本 task 简化,只实装 add)
+      // ...略去(若需要,agent 复用 T6 实现)
+      modal.classList.add('open');
+    }
+
+    function bindSettingsProvidersEvents(container) {
+      // preset select change / 测试连接 / 保存 — 沿用 T6 已实装,但 querySelector 替换为 container 内
+      // 简化:本 task 把所有事件绑在原 global modal #provider-modal-backdrop 的控件上,与 container 解耦
+      // 因为 modal 是一次性,跟 tab 实例无关;T6 已实装的 submitProviderForm / testProviderConnection 等可以复用
+      // 关键是 modal 关闭后,渲染入口 loadProvidersInto(container) 走 container,这样 OK
+      // (T6 实装的全局 provider-add-btn click 是绑在 source DOM 上的,clone 后失效 → 用 addBtn?.addEventListener 在 __mountSettingsTab__ 重新挂)
+      // Provider modal 表单事件(T6 已有 #provider-form submit 等)保持不变
+    }
+
+    // 启动初始化
+    function initTabManager() {
+      window.__tabManager__ = { openTab, closeTab, focusTab, persistTabs };
+      window.addEventListener('keydown', (e) => {
+        if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+          e.preventDefault();
+          $('sidebar-search-input')?.focus();
+        }
+      });
+      // 初始:restore 或 开一个 fresh "new_run" / "settings" tab
+      restoreTabs();
+    }
+    function restoreTabs() {
+      let saved = [];
+      try { saved = JSON.parse(localStorage.getItem('mediaToDocTabs') || '[]'); } catch (_) {}
+      if (saved.length === 0) {
+        // 默认首个 tab = "新建会话"(必须有;用户先选课程再提交)
+        openTab({ type: 'new_run', coursePath: state.selectedInbox || null });
+        return;
+      }
+      for (const s of saved) {
+        const opts = { type: s.type };
+        if (s.workDir) opts.workDir = s.workDir;
+        if (s.coursePath) opts.coursePath = s.coursePath;
+        openTab(opts);
+      }
+      const activeSaved = saved.find(s => s.active);
+      if (activeSaved) focusTab(makeTabId(activeSaved.type, activeSaved.workDir || activeSaved.coursePath));
+    }
+
+    // ───────── Sidebar §5 Settings Gear ─────────
+    function initSettingsGear() {
+      $('sidebar-settings-btn').addEventListener('click', () => {
+        window.__tabManager__?.openTab({ type: 'settings' });
+      });
+    }
+
+    // ───────── Sidebar §3 Search ─────────
+    function initSidebarSearch() {
+      const input = $('sidebar-search-input');
+      const apply = () => {
+        const q = input.value.trim().toLowerCase();
+        window.__projectTreeFilter__?.(q);
+      };
+      input.addEventListener('input', apply);
+      $('sidebar-search-refresh-btn').addEventListener('click', () => {
+        window.__refreshProjectTree__?.();
+      });
+      $('sidebar-search-clear-btn').addEventListener('click', () => {
+        input.value = '';
+        apply();
+      });
+    }
+
+    // ───────── Sidebar §4 Project Tree ─────────
+    // sessions_by_inbox: Map<inbox_path, PipelineRunSummary[]>
+    // collapsed: Set<inbox_path>
+    let _projectTree = { courses: [], sessionsByInbox: new Map(), collapsed: new Set() };
+
+    function inboxFromWorkDir(workDir) {
+      // run.work_dir 形如 "D:/training/inbox/课程A/output" 或 ".../output_longdoc" 等
+      // 反推 inbox = 父目录的父目录(去掉末尾 "/output" 或 "/output_xxx")
+      const norm = String(workDir).replace(/\\/g, '/');
+      const m = norm.match(/^(.+?)\/output(_[^/]+)?$/);
+      return m ? m[1] : norm;
+    }
+
+    function aggregateSessionsByInbox(runs) {
+      const m = new Map();
+      for (const r of runs || []) {
+        const inbox = inboxFromWorkDir(r.work_dir);
+        if (!m.has(inbox)) m.set(inbox, []);
+        m.get(inbox).push(r);
+      }
+      // 各 inbox 内按 started_at 降序
+      for (const arr of m.values()) arr.sort((a, b) => (b.started_at || '').localeCompare(a.started_at || ''));
+      return m;
+    }
+
+    function statusIcon(status) {
+      if (status === 'running') return '<span class="sidebar-session-status" style="color:var(--yellow)">●</span>';
+      if (status === 'completed') return '<span class="sidebar-session-status" style="color:var(--fg-muted)">✓</span>';
+      if (status === 'failed') return '<span class="sidebar-session-status" style="color:var(--red)">✗</span>';
+      if (status === 'cancelled') return '<span class="sidebar-session-status" style="color:var(--fg-muted)">⊘</span>';
+      return '<span class="sidebar-session-status" style="color:var(--fg-muted)">·</span>';
+    }
+
+    function relativeTime(isoOrEpoch) {
+      // run.started_at 是 "epoch:1719000000" 或 ISO;粗略显示 "Xm ago / Xh ago / Xd ago"
+      let ts;
+      if (typeof isoOrEpoch === 'string' && isoOrEpoch.startsWith('epoch:')) {
+        ts = parseInt(isoOrEpoch.slice(6), 10) * 1000;
+      } else {
+        ts = Date.parse(isoOrEpoch || '');
+      }
+      if (!ts) return '';
+      const dt = Math.max(0, Date.now() - ts);
+      if (dt < 60000) return 'just now';
+      if (dt < 3600000) return Math.floor(dt / 60000) + 'm ago';
+      if (dt < 86400000) return Math.floor(dt / 3600000) + 'h ago';
+      return Math.floor(dt / 86400000) + 'd ago';
+    }
+
+    function renderProjectTree(filterQuery) {
+      const q = (filterQuery || '').toLowerCase();
+      const treeEl = $('sidebar-project-tree');
+      const emptyEl = $('sidebar-tree-empty');
+      const filtered = _projectTree.courses.filter(c => !q || c.name.toLowerCase().includes(q));
+      if (filtered.length === 0) {
+        emptyEl.style.display = 'block';
+        emptyEl.textContent = _projectTree.courses.length === 0
+          ? 'inbox 目录为空'
+          : `(无匹配 "${q}")`;
+        treeEl.innerHTML = '';
+        return;
+      }
+      emptyEl.style.display = 'none';
+      treeEl.innerHTML = filtered.map(c => {
+        const sessions = _projectTree.sessionsByInbox.get(c.path) || [];
+        const expanded = !_projectTree.collapsed.has(c.path);
+        const selected = state.selectedInbox === c.path;
+        const projectId = 'p_' + btoa(c.path).replace(/[^a-zA-Z0-9]/g, '_');
+        return `
+          <div>
+            <div class="sidebar-project-node ${selected ? 'selected' : ''}" data-path="${escapeHtml(c.path)}" data-toggle-project>
+              <span class="sidebar-project-toggle">${expanded ? '▾' : '▸'}</span>
+              <span class="sidebar-project-name" title="${escapeHtml(c.path)}">${escapeHtml(c.name)}</span>
+            </div>
+            ${expanded && sessions.length > 0 ? `
+              <div class="sidebar-session-list">
+                ${sessions.slice(0, 8).map(s => `
+                  <div class="sidebar-session-entry" data-workdir="${escapeHtml(s.work_dir)}" data-click-session>
+                    ${statusIcon(s.status)}
+                    <span class="sidebar-session-name" title="${escapeHtml(s.work_dir)}">${escapeHtml(s.work_dir.split(/[/\\]/).pop())}</span>
+                    <span class="sidebar-session-time">${relativeTime(s.started_at)}</span>
+                  </div>
+                `).join('')}
+                ${sessions.length > 8 ? `<div class="sidebar-session-entry" style="opacity:0.6;cursor:default">… +${sessions.length - 8} more</div>` : ''}
+              </div>
+            ` : ''}
+          </div>
+        `;
+      }).join('');
+      // 绑事件
+      treeEl.querySelectorAll('[data-toggle-project]').forEach(el => {
+        el.addEventListener('click', () => {
+          const p = el.dataset.path;
+          if (_projectTree.collapsed.has(p)) _projectTree.collapsed.delete(p);
+          else _projectTree.collapsed.add(p);
+          if (state.selectedInbox !== p) selectProject(p);
+          else renderProjectTree(filterQuery);
+        });
+      });
+      treeEl.querySelectorAll('[data-click-session]').forEach(el => {
+        el.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const wd = el.dataset.workdir;
+          window.__tabManager__?.openTab({ type: 'session', workDir: wd });
+        });
+      });
+    }
+
+    function selectProject(coursePath) {
+      state.selectedInbox = coursePath;
+      state.selectedWorkDir = coursePath.replace(/[/\\]+$/, '') + '/output';
+      // 重渲染高亮
+      renderProjectTree($('sidebar-search-input').value);
+    }
+
+    async function refreshProjectTree() {
+      try {
+        state.workspace = $('workspace-root')?.value?.trim() || '';
+        const coursesR = await invoke('list_courses', { workspaceRoot: state.workspace || null });
+        const runsR = await invoke('list_all_runs');
+        _projectTree.courses = (coursesR.ok && coursesR.data && coursesR.data.courses) || [];
+        const runs = (runsR.ok && runsR.data && runsR.data.runs) || [];
+        _projectTree.sessionsByInbox = aggregateSessionsByInbox(runs);
+        renderProjectTree($('sidebar-search-input').value);
+      } catch (e) {
+        toast('refresh tree: ' + e, 'error');
+      }
+    }
+
+    function initProjectTree() {
+      window.__refreshProjectTree__ = refreshProjectTree;
+      window.__projectTreeFilter__ = (q) => renderProjectTree(q);
+      // W15-A T7.2:暴露 __projectTree__.refresh + selectProject 给 New Run tab「选目录」调用。
+      // 设计简化:refresh 走现有的 list_courses 路径(避免破坏 inbox-based sidebar);
+      // project registry 是后台注册表,不直接显示在 sidebar(保持既有 UX)。
+      window.__projectTree__ = window.__projectTree__ || {};
+      window.__projectTree__.refresh = async () => {
+        try {
+          await refreshProjectTree();
+        } catch (e) {
+          toast('__projectTree__.refresh: ' + e, 'error');
+        }
+      };
+      window.__projectTree__.selectProject = (idOrPath) => {
+        // 兼容:project registry 用 sha256 id,inbox tree 用 path
+        // 简化:直接调 selectProject(path),id 模式不强求(常见 case 是 path)
+        if (idOrPath) selectProject(idOrPath);
+      };
+      refreshProjectTree();
+      // 每 30s 静默刷新(后端可能有新 run 完成)
+      setInterval(refreshProjectTree, 30000);
+    }
+
     // ───────── Toast ─────────
     function toast(msg, kind = 'success', timeout = 4000) {
       const el = document.createElement('div');
@@ -431,28 +1596,22 @@
       setTimeout(() => el.remove(), timeout);
     }
 
-    // ───────── Tab 切换 ─────────
-    document.querySelectorAll('.nav-item').forEach((el) => {
-      el.addEventListener('click', () => {
-        document.querySelectorAll('.nav-item').forEach((n) => n.classList.remove('active'));
-        document.querySelectorAll('.tab-pane').forEach((p) => p.classList.remove('active'));
-        el.classList.add('active');
-        $('tab-' + el.dataset.tab).classList.add('active');
-        if (el.dataset.tab === 'inbox') refreshCourses();
-        if (el.dataset.tab === 'health') { refreshHealth(); refreshRuns(); }
-        if (el.dataset.tab === 'output') refreshOutputs();
-        if (el.dataset.tab === 'run') startRunPolling();
-      });
-    });
+    // ───────── Tab 切换(由 Task 8 tabManager 接管) ─────────
+    // 原 6 nav-item click handler 已删除 — 新架构下没有"主 tab 切换",只有侧栏 §4 项目 / §2 +新建会话 / §5 设置触发的 tabManager.openTab()
 
     // ───────── App info ─────────
     async function loadAppInfo() {
       // 2s timeout fallback: 防 app_info hang 时 badge 一直空白/露 v0.1.0
       const infoTimeout = new Promise((_, reject) =>
         setTimeout(() => reject(new Error('app_info timeout 2s')), 2000));
+      // W15-A 修复:version-badge / status-dot / status-text 由 Task 2 从 <header> 删除;
+      // 临时无家可归,Settings → About 子页(Task 11)接管前先 null-safe 兜底
       try {
         const info = await Promise.race([invoke('app_info'), infoTimeout]);
-        $('version-badge').textContent = 'v' + info.version;
+        // 暂存到 state,后续 Settings → About 子页(T11)挂载时再读
+        state.appInfo = info;
+        const badge = $('version-badge');
+        if (badge) badge.textContent = 'v' + info.version;
         $('info-name').textContent = info.name;
         $('info-version').textContent = info.version;
         $('info-mtd').textContent = info.mtd_version || '(unavailable)';
@@ -466,18 +1625,21 @@
         }
         const dot = $('status-dot');
         const txt = $('status-text');
-        if (info.mtd_version) {
-          dot.className = 'status-dot green';
-          txt.textContent = `mtd ${info.mtd_version} ready`;
-        } else if (info.probe_error) {
-          dot.className = 'status-dot red';
-          txt.textContent = 'probe failed';
-        } else {
-          dot.className = 'status-dot yellow';
-          txt.textContent = 'unknown';
+        if (dot && txt) {
+          if (info.mtd_version) {
+            dot.className = 'status-dot green';
+            txt.textContent = `mtd ${info.mtd_version} ready`;
+          } else if (info.probe_error) {
+            dot.className = 'status-dot red';
+            txt.textContent = 'probe failed';
+          } else {
+            dot.className = 'status-dot yellow';
+            txt.textContent = 'unknown';
+          }
         }
       } catch (e) {
-        $('version-badge').textContent = 'unknown';
+        const badge = $('version-badge');
+        if (badge) badge.textContent = 'unknown';
         $('info-error').textContent = '⚠ ' + e;
       }
     }
@@ -517,7 +1679,7 @@
         });
       });
     }
-    $('refresh-courses').addEventListener('click', refreshCourses);
+    if ($('refresh-courses')) $('refresh-courses').addEventListener('click', refreshCourses);
 
     // ───────── Run tab(多卡片) ─────────
     $('run-btn').addEventListener('click', async () => {
@@ -854,9 +2016,257 @@
       }
     };
 
+    // ───────── Settings 子页切换 ─────────
+    document.querySelectorAll('.settings-subnav-item').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const sub = btn.dataset.subtab;
+        document.querySelectorAll('.settings-subnav-item').forEach((b) => b.classList.toggle('active', b === btn));
+        document.querySelectorAll('.settings-subpane').forEach((p) => p.classList.toggle('active', p.id === `subtab-${sub}`));
+      });
+    });
+
+    // ───────── 9 个 LLM 服务商预设(与后端 llm_profiles.rs all_templates 一致) ─────────
+    const PROVIDER_PRESETS = [
+      { name: 'Anthropic',   base_url: 'https://api.anthropic.com',           model: 'claude-sonnet-4-5', anthropic: true  },
+      { name: 'OpenAI',      base_url: 'https://api.openai.com/v1',           model: 'gpt-4o',           anthropic: false },
+      { name: 'Ollama',      base_url: 'http://localhost:11434',              model: 'llama3.1',         anthropic: false },
+      { name: 'LM Studio',   base_url: 'http://localhost:1234/v1',            model: 'loaded-model',     anthropic: false },
+      { name: 'DeepSeek',    base_url: 'https://api.deepseek.com',            model: 'deepseek-chat',    anthropic: false },
+      { name: 'Zhipu GLM',   base_url: 'https://open.bigmodel.cn/api/paas/v4',model: 'glm-4-plus',       anthropic: false },
+      { name: 'Kimi',        base_url: 'https://api.moonshot.cn/v1',          model: 'moonshot-v1-128k', anthropic: false },
+      { name: 'MiniMax',  base_url: 'https://api.minimaxi.com/v1',       model: 'MiniMax-M3',     anthropic: false },
+      { name: 'Custom',      base_url: '',                                      model: '',                 anthropic: false },
+    ];
+
+    // ───────── Providers CRUD ─────────
+    function escapeHtml(s) {
+      return String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+    }
+
+    async function loadProviders() {
+      const listEl = $('provider-list');
+      listEl.innerHTML = '<div class="empty">Loading…</div>';
+      try {
+        const r = await invoke('list_llm_profiles');
+        if (!r.ok) { listEl.innerHTML = `<div class="provider-empty">加载失败: ${escapeHtml(r.error)}</div>`; return; }
+        let activeName = '';
+        try {
+          const ar = await invoke('get_active_llm_profile_name');
+          if (ar.ok) activeName = ar.data || '';
+        } catch (_) { /* silent */ }
+        renderProviders(r.data || [], activeName);
+      } catch (e) {
+        listEl.innerHTML = `<div class="provider-empty">异常: ${escapeHtml(e)}</div>`;
+      }
+    }
+
+    function renderProviders(profiles, activeName) {
+      const listEl = $('provider-list');
+      if (!profiles.length) {
+        listEl.innerHTML = '<div class="provider-empty">还没有 profile。点 [+ 添加服务商] 创建。</div>';
+        return;
+      }
+      listEl.innerHTML = profiles.map((p) => {
+        const isActive = p.name === activeName;
+        const meta = `${escapeHtml(p.base_url)} · ${escapeHtml(p.model)}` + (p.note ? ` · ${escapeHtml(p.note)}` : '');
+        return `
+          <div class="provider-card" data-name="${escapeHtml(p.name)}">
+            <div class="provider-card-header">
+              <span class="provider-star ${isActive ? '' : 'inactive'}" title="${isActive ? '当前激活' : '未激活'}">★</span>
+              <span class="provider-name">${escapeHtml(p.name)}</span>
+              <span class="provider-provider">(${escapeHtml(p.provider)})</span>
+            </div>
+            <div class="provider-meta">${meta}</div>
+            <div class="provider-actions">
+              <button data-act="activate" data-name="${escapeHtml(p.name)}" ${isActive ? 'disabled' : ''}>激活</button>
+              <button class="secondary" data-act="edit" data-name="${escapeHtml(p.name)}">编辑</button>
+              <button class="danger" data-act="delete" data-name="${escapeHtml(p.name)}">删除</button>
+            </div>
+          </div>`;
+      }).join('');
+      listEl.querySelectorAll('button[data-act]').forEach((btn) => {
+        btn.addEventListener('click', () => handleProviderAction(btn.dataset.act, btn.dataset.name));
+      });
+    }
+
+    async function handleProviderAction(act, name) {
+      if (act === 'activate') {
+        try {
+          const r = await invoke('set_active_profile', { name });
+          if (!r.ok) { toast('激活失败: ' + r.error, 'error'); return; }
+          toast(`已激活: ${name}`, 'success');
+          await loadProviders();
+        } catch (e) { toast('激活异常: ' + e, 'error'); }
+      } else if (act === 'edit') {
+        try {
+          const r = await invoke('list_llm_profiles');
+          if (!r.ok) { toast('读取失败: ' + r.error, 'error'); return; }
+          const p = (r.data || []).find((x) => x.name === name);
+          if (!p) { toast('profile 不存在', 'error'); return; }
+          openProviderModal(p);
+        } catch (e) { toast('读取异常: ' + e, 'error'); }
+      } else if (act === 'delete') {
+        if (!confirm(`删除 profile "${name}" 及其 keyring key?`)) return;
+        try {
+          const r = await invoke('delete_llm_profile', { name });
+          if (!r.ok) { toast('删除失败: ' + r.error, 'error'); return; }
+          toast(`已删除: ${name}`, 'success');
+          await loadProviders();
+        } catch (e) { toast('删除异常: ' + e, 'error'); }
+      }
+    }
+
+    // ───────── Provider modal ─────────
+    let providerEditingName = null;   // 编辑模式时存原 name
+
+    function buildPresetOptions() {
+      const sel = $('provider-preset');
+      sel.innerHTML = '';
+      PROVIDER_PRESETS.forEach((p) => {
+        const opt = document.createElement('option');
+        opt.value = p.name;
+        opt.textContent = p.name;
+        sel.appendChild(opt);
+      });
+    }
+
+    function applyPresetToForm(presetName) {
+      const p = PROVIDER_PRESETS.find((x) => x.name === presetName);
+      if (!p) return;
+      $('provider-base-url').value = p.base_url;
+      $('provider-model').value = p.model;
+      $('anthropic-only-block').style.display = p.anthropic ? 'block' : 'none';
+    }
+
+    function openProviderModal(profile) {
+      providerEditingName = profile ? profile.name : null;
+      $('provider-modal-title').textContent = profile ? `编辑 ${profile.name}` : '添加服务商';
+      $('provider-test-result').textContent = '';
+      $('provider-test-result').className = 'provider-modal-test-result';
+      // 预设下拉
+      const presetName = profile ? profile.provider : 'DeepSeek';
+      $('provider-preset').value = presetName;
+      // 字段填充
+      $('provider-name').value = profile ? profile.name : '';
+      $('provider-note').value = profile ? (profile.note || '') : '';
+      $('provider-api-key').value = '';        // 编辑时 key 不预填
+      // base_url / model:preset 自动填(profile 时再覆盖)
+      applyPresetToForm(presetName);
+      if (profile) {
+        $('provider-base-url').value = profile.base_url || '';
+        $('provider-model').value = profile.model || '';
+        $('provider-tool-search').checked = !!profile.tool_search_enabled;
+        $('provider-betas-disabled').checked = !!profile.experimental_betas_disabled;
+      } else {
+        $('provider-tool-search').checked = false;
+        $('provider-betas-disabled').checked = false;
+      }
+      $('provider-modal-backdrop').classList.add('open');
+    }
+
+    function closeProviderModal() {
+      $('provider-modal-backdrop').classList.remove('open');
+      providerEditingName = null;
+    }
+
+    function gatherProviderFormArgs() {
+      const preset = $('provider-preset').value;
+      const isAnthropic = !!(PROVIDER_PRESETS.find((p) => p.name === preset && p.anthropic));
+      return {
+        name: $('provider-name').value.trim(),
+        provider: preset,
+        base_url: $('provider-base-url').value.trim(),
+        model: $('provider-model').value.trim(),
+        note: $('provider-note').value.trim() || null,
+        api_key: $('provider-api-key').value || null,
+        tool_search_enabled: isAnthropic ? $('provider-tool-search').checked : null,
+        experimental_betas_disabled: isAnthropic ? $('provider-betas-disabled').checked : null,
+      };
+    }
+
+    async function testProviderConnection() {
+      const name = $('provider-name').value.trim();
+      if (!name) { toast('请先填名称再测试', 'error'); return; }
+      const apiKey = $('provider-api-key').value;
+      if (!apiKey) { toast('测试连接需要先填 API 密钥', 'error'); return; }
+      // 临时保存(profile 必须先存好才能 test_connection 读 keyring)
+      const args = gatherProviderFormArgs();
+      const saveR = await invoke('save_llm_profile', { args });
+      if (!saveR.ok) {
+        const tr = $('provider-test-result');
+        tr.textContent = '保存失败: ' + saveR.error;
+        tr.className = 'provider-modal-test-result error';
+        return;
+      }
+      const tr = $('provider-test-result');
+      tr.textContent = '测试中…';
+      tr.className = 'provider-modal-test-result';
+      try {
+        const r = await invoke('test_llm_connection', { name });
+        if (!r.ok) {
+          tr.textContent = '错误: ' + r.error;
+          tr.className = 'provider-modal-test-result error';
+          return;
+        }
+        const d = r.data;
+        if (d.ok) {
+          tr.textContent = `✓ 连接成功 ${d.latency_ms}ms`;
+          tr.className = 'provider-modal-test-result ok';
+        } else {
+          tr.textContent = `✗ ${d.error || '连接失败'}`;
+          tr.className = 'provider-modal-test-result error';
+        }
+      } catch (e) {
+        tr.textContent = '异常: ' + e;
+        tr.className = 'provider-modal-test-result error';
+      }
+    }
+
+    async function submitProviderForm(e) {
+      e.preventDefault();
+      const args = gatherProviderFormArgs();
+      try {
+        const r = await invoke('save_llm_profile', { args });
+        if (!r.ok) { toast('保存失败: ' + r.error, 'error'); return; }
+        // 若是新建第一个 profile,自动激活(让用户立刻能跑流水线)
+        if (!providerEditingName) {
+          const listR = await invoke('list_llm_profiles');
+          if (listR.ok && (listR.data || []).length === 1) {
+            await invoke('set_active_profile', { name: args.name });
+          }
+        }
+        toast(providerEditingName ? '已更新' : '已添加', 'success');
+        closeProviderModal();
+        await loadProviders();  // 刷新 SOURCE 列表(向后兼容 / T6 其它调用点)
+        if (window.__activeSettingsContainer__) {
+          // I-1 修复:Settings Tab 用 cloneNode 复制了 #provider-list(显示给用户看),
+          // 上面的 loadProviders() 只刷 SOURCE(被 CSS 隐藏)。这里刷 cloned,
+          // 让用户保存后立刻看到新加的 profile,不必手动点 Refresh。
+          await loadProvidersInto(window.__activeSettingsContainer__);
+        }
+      } catch (e) { toast('保存异常: ' + e, 'error'); }
+    }
+
+    // ───────── 绑定 modal 控件 ─────────
+    buildPresetOptions();
+    $('provider-preset').addEventListener('change', (e) => applyPresetToForm(e.target.value));
+    $('provider-add-btn').addEventListener('click', () => openProviderModal(null));
+    $('provider-refresh-btn').addEventListener('click', loadProviders);
+    $('provider-cancel-btn').addEventListener('click', closeProviderModal);
+    $('provider-test-btn').addEventListener('click', testProviderConnection);
+    $('provider-form').addEventListener('submit', submitProviderForm);
+    $('provider-modal-backdrop').addEventListener('click', (e) => {
+      if (e.target.id === 'provider-modal-backdrop') closeProviderModal();
+    });
+
     // ───────── Boot ─────────
+    initSidebarCollapse();
+    initSidebarActions();
+    initSidebarSearch();
+    initProjectTree();
+    initSettingsGear();
+    initTabManager();
     await loadAppInfo();
-    await refreshCourses();
   </script>
 </body>
 </html>

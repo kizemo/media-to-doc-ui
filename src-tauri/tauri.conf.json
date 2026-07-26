@@ -1,13 +1,14 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "media-to-doc",
-  "version": "1.4.2",
+  "version": "1.5.0",
   "identifier": "com.duanyi.mediatodoc",
   "build": {
     "frontendDist": "../src",
     "beforeBuildCommand": ""
   },
   "app": {
+    "withGlobalTauri": true,
     "windows": [
       {
         "title": "media-to-doc",
@@ -27,6 +28,9 @@
     "icon": [
       "icons/icon.ico",
       "icons/icon.png"
+    ],
+    "resources": [
+      "F:/soft/00selfmade/media-to-doc/src/media_to_doc/data/long_doc_skill/**/*"
     ],
     "windows": {
       "nsis": {
